@@ -1,7 +1,7 @@
-import torch.nn as nn
+import mindspore.nn as nn
 
 
-class Linear_For_Backbone(nn.Module):
+class Linear_For_Backbone(nn.Cell):
     def __init__(self, args):
         super(Linear_For_Backbone, self).__init__()
         if args.use_swin_bb:
@@ -9,8 +9,8 @@ class Linear_For_Backbone(nn.Module):
         else:
             input_dim = 768
 
-        self.linear = nn.Linear(input_dim, 1024)
+        self.linear = nn.Dense(input_dim, 1024)
         self.relu = nn.ReLU()
 
-    def forward(self, x):
+    def construct(self, x):
         return self.relu(self.linear(x))

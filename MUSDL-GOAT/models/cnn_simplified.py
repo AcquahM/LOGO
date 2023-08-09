@@ -1,15 +1,12 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
 import numpy as np
 
-from models.backbone import *
-from utils import *
-from roi_align.roi_align import RoIAlign  # RoIAlign module
+from utils import calc_pairwise_distance_3d
+
+import mindspore.nn as nn
+import mindspore.ops as ops
 
 
-class GCN_Module(nn.Module):
+class GCN_Module(nn.Cell):
     def __init__(self, args):
         super(GCN_Module, self).__init__()
         self.args = args
@@ -21,12 +18,12 @@ class GCN_Module(nn.Module):
         NFG_ONE = NFG
 
         # set modules
-        self.fc_rn_theta_list = torch.nn.ModuleList([nn.Linear(NFG, NFR) for i in range(NG)])
-        self.fc_rn_phi_list = torch.nn.ModuleList([nn.Linear(NFG, NFR) for i in range(NG)])
-        self.fc_gcn_list = torch.nn.ModuleList([nn.Linear(NFG, NFG_ONE, bias=False) for i in range(NG)])
-        self.nl_gcn_list = torch.nn.ModuleList([nn.LayerNorm([NFG_ONE]) for i in range(NG)])
+        self.fc_rn_theta_list = nn.CellList([nn.Dense(NFG, NFR) for i in range(NG)])
+        self.fc_rn_phi_list = nn.CellList([nn.Dense(NFG, NFR) for i in range(NG)])
+        self.fc_gcn_list = nn.CellList([nn.Dense(NFG, NFG_ONE, bias=False) for i in range(NG)])
+        self.nl_gcn_list = nn.CellList([nn.LayerNorm([NFG_ONE]) for i in range(NG)])
 
-    def forward(self, graph_boxes_features, boxes_in_flat):
+    def construct(self, graph_boxes_features, boxes_in_flat):
         """
         graph_boxes_features  [B*T,N,NFG]
         """
@@ -55,8 +52,7 @@ class GCN_Module(nn.Module):
             # calculate similarity
             graph_boxes_features_theta = self.fc_rn_theta_list[i](graph_boxes_features)  # B*T,N,NFR
             graph_boxes_features_phi = self.fc_rn_phi_list[i](graph_boxes_features)  # B*T,N,NFR
-            similarity_relation_graph = torch.matmul(graph_boxes_features_theta,
-                                                     graph_boxes_features_phi.transpose(1, 2))  # B*T,N,N
+            similarity_relation_graph = ops.matmul(graph_boxes_features_theta, graph_boxes_features_phi.transpose(1, 2))  # B*T,N,N
             similarity_relation_graph = similarity_relation_graph / np.sqrt(NFR)
             similarity_relation_graph = similarity_relation_graph.reshape(-1, 1)  # B*T*N*N, 1
 
@@ -64,22 +60,22 @@ class GCN_Module(nn.Module):
             relation_graph = similarity_relation_graph
             relation_graph = relation_graph.reshape(B, N, N)  # B*T,N,N
             relation_graph[position_mask] = -float('inf')
-            relation_graph = torch.softmax(relation_graph, dim=2)
+            relation_graph = ops.softmax(relation_graph, axis=2)
 
             # Graph convolution
             one_graph_boxes_features = self.fc_gcn_list[i](
-                torch.matmul(relation_graph, graph_boxes_features))  # B, N, NFG_ONE  # G*X*W
+                ops.matmul(relation_graph, graph_boxes_features))  # B, N, NFG_ONE  # G*X*W
             one_graph_boxes_features = self.nl_gcn_list[i](one_graph_boxes_features)
-            one_graph_boxes_features = F.relu(one_graph_boxes_features)  # ReLu(G*X*W)
+            one_graph_boxes_features = ops.relu(one_graph_boxes_features)  # ReLu(G*X*W)
             graph_boxes_features_list.append(one_graph_boxes_features)
 
         # fuse multi graphs
-        graph_boxes_features = torch.sum(torch.stack(graph_boxes_features_list), dim=0)  # B*T, N, NFG
+        graph_boxes_features = ops.sum(ops.stack(graph_boxes_features_list), dim=0)  # B*T, N, NFG
 
         return graph_boxes_features, relation_graph
 
 
-class GCNnet_artisticswimming_simplified(nn.Module):
+class GCNnet_artisticswimming_simplified(nn.Cell):
     """
     main module of GCN for the volleyball dataset
     """
@@ -96,16 +92,17 @@ class GCNnet_artisticswimming_simplified(nn.Module):
         NFR, NFG = self.args.num_features_relation, self.args.num_features_gcn
 
         # set modules
-        self.gcn_list = torch.nn.ModuleList([GCN_Module(args) for i in range(self.args.gcn_layers)])
+        self.gcn_list = nn.CellList([GCN_Module(args) for i in range(self.args.gcn_layers)])
 
-        # initial
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
+        # # initial
+        # for m in self.modules():
+        #     if isinstance(m, nn.Dense):
+        #         nn.init.kaiming_normal_(m.weight)
+        #         if m.bias is not None:
+        #             nn.init.zeros_(m.bias)
 
-    def forward(self, boxes_features, boxes_in):
+
+    def construct(self, boxes_features, boxes_in):
 
         # read config parameters
         B = boxes_features.shape[0]  # B,540*t,N,NFB
@@ -115,7 +112,7 @@ class GCNnet_artisticswimming_simplified(nn.Module):
         NFB = self.args.num_features_boxes
         NFR, NFG = self.args.num_features_relation, self.args.num_features_gcn
 
-        boxes_in_flat = torch.reshape(boxes_in, (B * T * N, 4))  # B*T*N, 4
+        boxes_in_flat = ops.reshape(boxes_in, (B * T * N, 4))  # B*T*N, 4
         boxes_in_flat.requires_grad = False
         # GCN
         if self.args.use_gcn:

@@ -1,25 +1,39 @@
-import torch.nn as nn
+import mindspore as ms
+import mindspore.nn as nn
 from opts import *
 
 
-class MLP_block(nn.Module):
+class MLP_block(nn.Cell):
 
     def __init__(self, output_dim):
         super(MLP_block, self).__init__()
         self.activation = nn.ReLU()
-        self.softmax = nn.Softmax(dim=-1)
-        self.layer1 = nn.Linear(feature_dim, 256)
-        self.layer2 = nn.Linear(256, 128)
-        self.layer3 = nn.Linear(128, output_dim)
+        self.softmax = nn.Softmax(axis=-1)
+        self.layer1 = nn.Dense(feature_dim, 256)
+        self.layer2 = nn.Dense(256, 128)
+        self.layer3 = nn.Dense(128, output_dim)
+        # # initial
+        # for m in self.modules():
+        #     if isinstance(m, nn.Dense):
+        #         nn.init.kaiming_normal_(m.weight)
+        #         if m.bias is not None:
+        #             nn.init.zeros_(m.bias)
 
-    def forward(self, x):
+        for _, cell in self.cells_and_names():
+            if isinstance(cell, nn.Dense):
+                cell.weight.set_data(ms.common.initializer.initializer(
+                    ms.common.initializer.HeNormal(), cell.weight.shape, cell.weight.dtype))
+                if cell.has_bias:
+                    cell.bias.set_data(ms.common.initializer.initializer("zeros", cell.bias.shape, cell.bias.dtype))
+
+    def construct(self, x):
         x = self.activation(self.layer1(x))
         x = self.activation(self.layer2(x))
         output = self.softmax(self.layer3(x))
         return output
 
 
-class Evaluator(nn.Module):
+class Evaluator(nn.Cell):
 
     def __init__(self, output_dim, model_type='USDL', num_judges=None):
         super(Evaluator, self).__init__()
@@ -30,9 +44,9 @@ class Evaluator(nn.Module):
             self.evaluator = MLP_block(output_dim=output_dim)
         else:
             assert num_judges is not None, 'num_judges is required in MUSDL'
-            self.evaluator = nn.ModuleList([MLP_block(output_dim=output_dim) for _ in range(num_judges)])
+            self.evaluator = nn.CellList([MLP_block(output_dim=output_dim) for _ in range(num_judges)])
 
-    def forward(self, feats_avg):  # data: NCTHW
+    def construct(self, feats_avg):  # data: NCTHW
 
         if self.model_type == 'USDL':
             probs = self.evaluator(feats_avg)  # Nxoutput_dim

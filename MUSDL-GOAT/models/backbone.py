@@ -1,10 +1,10 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import torchvision.models as models
 
+import mindspore.ops as ops
+import mindspore.nn as nn
 
-class MyInception_v3(nn.Module):
+
+class MyInception_v3(nn.Cell):
     def __init__(self, transform_input=False, pretrained=False):
         super(MyInception_v3, self).__init__()
         self.transform_input = transform_input
@@ -24,7 +24,7 @@ class MyInception_v3(nn.Module):
         self.Mixed_6d = inception.Mixed_6d
         self.Mixed_6e = inception.Mixed_6e
 
-    def forward(self, x):
+    def construct(self, x):
         outputs = []
 
         if self.transform_input:
@@ -39,13 +39,13 @@ class MyInception_v3(nn.Module):
         # 147 x 147 x 32
         x = self.Conv2d_2b_3x3(x)
         # 147 x 147 x 64
-        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = ops.max_pool2d(x, kernel_size=3, stride=2)
         # 73 x 73 x 64
         x = self.Conv2d_3b_1x1(x)
         # 73 x 73 x 80
         x = self.Conv2d_4a_3x3(x)
         # 71 x 71 x 192
-        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = ops.max_pool2d(x, kernel_size=3, stride=2)
         # 35 x 35 x 192
         x = self.Mixed_5b(x)
         # 35 x 35 x 256
@@ -70,7 +70,7 @@ class MyInception_v3(nn.Module):
         return outputs  # cuda:0
 
 
-class MyVGG16(nn.Module):
+class MyVGG16(nn.Cell):
     def __init__(self, pretrained=False):
         super(MyVGG16, self).__init__()
 
@@ -78,12 +78,12 @@ class MyVGG16(nn.Module):
 
         self.features = vgg.features
 
-    def forward(self, x):
+    def construct(self, x):
         x = self.features(x)
         return [x]
 
 
-class MyVGG19(nn.Module):
+class MyVGG19(nn.Cell):
     def __init__(self, pretrained=False):
         super(MyVGG19, self).__init__()
 
@@ -91,6 +91,6 @@ class MyVGG19(nn.Module):
 
         self.features = vgg.features
 
-    def forward(self, x):
+    def construct(self, x):
         x = self.features(x)
         return [x]

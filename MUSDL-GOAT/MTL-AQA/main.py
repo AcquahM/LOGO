@@ -1,19 +1,12 @@
-import os
 import pickle
 import sys
 from thop import profile
 
 sys.path.append('../')
 
-import torch
-import torch.nn as nn
-
-from utils import *
 from opts import *
 from scipy import stats
-from tqdm import tqdm
 from dataset import VideoDataset
-from models.i3d import InceptionI3d
 from models.evaluator import Evaluator
 from config import get_parser
 import time
@@ -23,8 +16,12 @@ from models.group_aware_attention import Encoder_Blocks
 from utils import *
 from models.linear_for_bp import Linear_For_Backbone
 
-torch.backends.cudnn.enabled = False
-torch.backends.cudnn.benchmark = True
+import mindspore as ms
+import mindspore.nn as nn
+import mindspore.ops as ops
+
+# torch.backends.cudnn.enabled = False
+# torch.backends.cudnn.benchmark = True
 
 
 def get_models(args):
@@ -48,33 +45,37 @@ def get_models(args):
 
 def compute_score(model_type, probs, data):
     if model_type == 'USDL':
-        pred = probs.argmax(dim=-1) * (label_max / (output_dim['USDL'] - 1))
+        pred = probs.argmax(axis=-1) * (label_max / (output_dim['USDL'] - 1))
     else:
         # calculate expectation & denormalize & sort
-        judge_scores_pred = torch.stack([prob.argmax(dim=-1) * judge_max / (output_dim['MUSDL'] - 1)
-                                         for prob in probs], dim=1).sort()[0]  # N, 7
+        judge_scores_pred = ops.stack([prob.argmax(axis=-1) * judge_max / (output_dim['MUSDL'] - 1)
+                                       for prob in probs], axis=1).sort()[0]  # N, 7
 
         # keep the median 3 scores to get final score according to the rule of diving
-        pred = torch.sum(judge_scores_pred[:, 2:5], dim=1) * data['difficulty'].cuda()
+        pred = ops.sum(judge_scores_pred[:, 2:5], dim=1) * data['difficulty']
     return pred
 
 
 def compute_loss(model_type, criterion, probs, data):
     if model_type == 'USDL':
-        loss = criterion(torch.log(probs), data['soft_label'].cuda())
+        loss = criterion(ops.log(probs), data['soft_label'])
     else:
-        loss = sum([criterion(torch.log(probs[i]), data['soft_judge_scores'][:, i].cuda()) for i in range(num_judges)])
+        loss = sum([criterion(ops.log(probs[i]), data['soft_judge_scores'][:, i]) for i in range(num_judges)])
     return loss
 
 
 def get_dataloaders(args):
     dataloaders = {}
-    dataloaders['test'] = torch.utils.data.DataLoader(VideoDataset('test', args),
-                                                      batch_size=args.test_batch_size,
-                                                      num_workers=args.num_workers,
-                                                      shuffle=False,
-                                                      pin_memory=True,
-                                                      worker_init_fn=worker_init_fn)
+    # dataloaders['test'] = torch.utils.data.DataLoader(VideoDataset('test', args),
+    #                                                   batch_size=args.test_batch_size,
+    #                                                   num_workers=args.num_workers,
+    #                                                   shuffle=False,
+    #                                                   pin_memory=True,
+    #                                                   worker_init_fn=worker_init_fn)
+    dataloaders['test'] = ms.dataset.GeneratorDataset(VideoDataset('test', args),
+                                                      column_names=["data"],
+                                                      num_parallel_workers=args.num_workers,
+                                                      shuffle=False).batch(batch_size=args.test_batch_size)
 
     if args.use_multi_gpu:
         dataloaders['train'] = build_dataloader(VideoDataset('train', args),
@@ -84,18 +85,22 @@ def get_dataloaders(args):
                                                 persistent_workers=True,
                                                 seed=set_seed(args.seed))
     else:
-        dataloaders['train'] = torch.utils.data.DataLoader(VideoDataset('train', args),
-                                                           batch_size=args.train_batch_size,
-                                                           num_workers=args.num_workers,
-                                                           shuffle=False,
-                                                           pin_memory=False,
-                                                           worker_init_fn=worker_init_fn)
+        # dataloaders['train'] = torch.utils.data.DataLoader(VideoDataset('train', args),
+        #                                                    batch_size=args.train_batch_size,
+        #                                                    num_workers=args.num_workers,
+        #                                                    shuffle=False,
+        #                                                    pin_memory=False,
+        #                                                    worker_init_fn=worker_init_fn)
+        dataloaders['train'] = ms.dataset.GeneratorDataset(VideoDataset('train', args),
+                                                           column_names=["data"],
+                                                           num_parallel_workers=args.num_workers,
+                                                           shuffle=False).batch(batch_size=args.train_batch_size)
     return dataloaders
 
 
 def flops_params(model, model_name: str, input_size: tuple):
-    input = torch.randn(*input_size)
-    flops, params = profile(model, inputs=(input, ))
+    input = ops.randn(*input_size)
+    flops, params = profile(model, inputs=(input,))
     print(f'[{model_name}]flops: ', flops, 'params: ', params)
 
 
@@ -114,34 +119,36 @@ def main(dataloaders, i3d, evaluator, base_logger, args):
     # Set loss function
     criterion = nn.KLDivLoss()
 
-    # Set data position
-    if torch.cuda.is_available():
-        device = get_device()
-    else:
-        device = torch.device('cpu')
+    # # Set data position
+    # if torch.cuda.is_available():
+    #     device = get_device()
+    # else:
+    #     device = torch.device('cpu')
+    ms.set_context(device_target='GPU', device_id=0)
 
     # Set models and optimizer(depend on whether to use goat)
     if args.use_goat:
         if args.use_cnn_features:
             gcn = GCNnet_artisticswimming_simplified(args)
 
-            input1 = torch.randn(1, 540, 8, 1024)
-            input2 = torch.randn(1, 540, 8, 4)
+            input1 = ops.randn(1, 540, 8, 1024)
+            input2 = ops.randn(1, 540, 8, 4)
             flops, params = profile(gcn, inputs=(input1, input2))
             print(f'[GCNnet_artisticswimming_simplified]flops: ', flops, 'params: ', params)
         else:
             gcn = GCNnet_artisticswimming(args)
             gcn.loadmodel(args.stage1_model_path)
-        attn_encoder = Encoder_Blocks(args.qk_dim, 1024, args.linear_dim, args.num_heads, args.num_layers, args.attn_drop)
+        attn_encoder = Encoder_Blocks(args.qk_dim, 1024, args.linear_dim, args.num_heads, args.num_layers,
+                                      args.attn_drop)
         linear_bp = Linear_For_Backbone(args)
 
-        input1 = torch.randn(1, 540, 1024)
-        input2 = torch.randn(1, 540, 1024)
-        input3 = torch.randn(1, 540, 1024)
+        input1 = ops.randn(1, 540, 1024)
+        input2 = ops.randn(1, 540, 1024)
+        input3 = ops.randn(1, 540, 1024)
         flops, params = profile(attn_encoder, inputs=(input1, input2, input3))
         print(f'[attn_encoder]flops: ', flops, 'params: ', params)
 
-        flops, params = profile(evaluator, inputs=(input1.mean(1), ))
+        flops, params = profile(evaluator, inputs=(input1.mean(1),))
         print(f'[evaluator]flops: ', flops, 'params: ', params)
 
         if args.use_multi_gpu:
@@ -150,16 +157,16 @@ def main(dataloaders, i3d, evaluator, base_logger, args):
             wrap_model(linear_bp, distributed=args.distributed)
             wrap_model(evaluator, distributed=args.distributed)
         else:
-            gcn = gcn.to(device=device)
-            attn_encoder = attn_encoder.to(device=device)
-            linear_bp = linear_bp.to(device=device)
-            evaluator = evaluator.to(device=device)
-        optimizer = torch.optim.Adam([
-            {'params': gcn.parameters()},
-            {'params': evaluator.parameters()},
-            {'params': linear_bp.parameters()},
-            {'params': attn_encoder.parameters()}
-        ], lr=args.lr, weight_decay=args.weight_decay)
+            gcn = gcn
+            attn_encoder = attn_encoder
+            linear_bp = linear_bp
+            evaluator = evaluator
+        optimizer = nn.Adam([
+            {'params': gcn.trainable_params()},
+            {'params': evaluator.trainable_params()},
+            {'params': linear_bp.trainable_params()},
+            {'params': attn_encoder.trainable_params()}
+        ], learning_rate=args.lr, weight_decay=args.weight_decay)
     else:
         gcn = None
         attn_encoder = None
@@ -168,10 +175,67 @@ def main(dataloaders, i3d, evaluator, base_logger, args):
             wrap_model(evaluator, distributed=args.distributed)
             wrap_model(linear_bp, distributed=args.distributed)
         else:
-            evaluator = evaluator.to(device=device)
-            linear_bp = linear_bp.to(device=device)
-        optimizer = torch.optim.Adam([{'params': evaluator.parameters()}, {'params': linear_bp.parameters()}], lr=args.lr, weight_decay=args.weight_decay)
+            evaluator = evaluator
+            linear_bp = linear_bp
+        optimizer = nn.Adam([{'params': evaluator.trainable_params()}, {'params': linear_bp.trainable_params()}],
+                                     learning_rate=args.lr, weight_decay=args.weight_decay)
 
+    def forward_fn(clip_feats, data):
+        if not args.use_i3d_bb:
+            clip_feats = linear_bp(clip_feats)  # B,540,1024
+        attn = None
+        # if args.use_goat:
+        #     # Use formation features
+        #     if args.use_formation:
+        #         q = data['formation_features']  # B,540,1024
+        #         k = q
+        #         # clip_feats = attn_encoder(q, k, clip_feats).to(device)
+        #         output = attn_encoder(q, k, clip_feats)
+        #         clip_feats = output[0]
+        #         attn = output[1]
+        #     # Use bridge-prompt features
+        #     elif args.use_bp:
+        #         q = data['bp_features']  # B,540,768
+        #         k = q
+        #         # clip_feats = attn_encoder(q, k, clip_feats).to(device)
+        #         output = attn_encoder(q, k, clip_feats)
+        #         clip_feats = output[0]
+        #         attn = output[1]
+        #     # Use self-attention
+        #     elif args.use_self:
+        #         q = clip_feats
+        #         k = q
+        #         # clip_feats = attn_encoder(q, k, clip_feats).to(device)
+        #         output = attn_encoder(q, k, clip_feats)
+        #         clip_feats = output[0]
+        #         attn = output[1]
+        #     # Use group features
+        #     else:
+        #         if args.use_cnn_features:
+        #             boxes_features = data['cnn_features']
+        #             boxes_in = data['boxes']  # B,T,N,4
+        #             q = gcn(boxes_features, boxes_in)  # B,540,1024
+        #             k = q
+        #             # clip_feats = attn_encoder(q, k, clip_feats).to(device)
+        #             output = attn_encoder(q, k, clip_feats)
+        #             clip_feats = output[0]
+        #             attn = output[1]
+        #         else:
+        #             images_in = data['video']  # B,T,C,H,W
+        #             boxes_in = data['boxes']  # B,T,N,4
+        #             q = gcn(images_in, boxes_in)  # B,540,1024
+        #             k = q
+        #             # clip_feats = attn_encoder(q, k, clip_feats).to(device)
+        #             output = attn_encoder(q, k, clip_feats)
+        #             clip_feats = output[0]
+        #             attn = output[1]
+        # #########  GOAT END  ##########
+        # print(clip_feats.mean(1))
+        probs = evaluator(clip_feats.mean(1))
+        loss = compute_loss(args.type, criterion, probs, data)
+        return loss, probs, attn
+
+    grad_fn = ms.value_and_grad(forward_fn, None, optimizer.parameters, has_aux=True)
     # DP
     # evaluator = nn.DataParallel(evaluator)
     # if args.use_goat:
@@ -188,7 +252,8 @@ def main(dataloaders, i3d, evaluator, base_logger, args):
         if args.use_multi_gpu:
             dataloaders['train'].sampler.set_epoch(epoch)
         if is_main_process():
-            log_and_print(base_logger, f'Epoch: {epoch}  Current Best rho: {rho_best} at epoch {epoch_best}, Current Best RL2: {RL2_best}')
+            log_and_print(base_logger,
+                          f'Epoch: {epoch}  Current Best rho: {rho_best} at epoch {epoch_best}, Current Best RL2: {RL2_best}')
 
         for split in ['train', 'test']:
             true_scores = []
@@ -197,98 +262,57 @@ def main(dataloaders, i3d, evaluator, base_logger, args):
             if split == 'train':
                 # i3d.train()
                 if args.use_goat:
-                    gcn.train()
-                    attn_encoder.train()
-                evaluator.train()
-                linear_bp.train()
-                torch.set_grad_enabled(True)
+                    gcn.set_train()
+                    attn_encoder.set_train()
+                evaluator.set_train()
+                linear_bp.set_train()
+
+                # torch.set_grad_enabled(True)
             else:
                 # i3d.eval()
                 if args.use_goat:
-                    gcn.eval()
-                    attn_encoder.eval()
-                evaluator.eval()
-                linear_bp.eval()
-                torch.set_grad_enabled(False)
+                    gcn.set_train(False)
+                    attn_encoder.set_train(False)
+                evaluator.set_train(False)
+                linear_bp.set_train(False)
+                # torch.set_grad_enabled(False)
             # visual
             attn_list = []
             key_list = []
             if split == 'train' or (split == 'test' and is_main_process()):
                 for data in dataloaders[split]:
+                    data = data[0]
+                    if split == 'train' and args.train_batch_size == 1:
+                        data = {k: v.unsqueeze(0) for k, v in data.items() if k != 'key'}
+                    if split == 'test' and args.test_batch_size == 1:
+                        data = {k: v.unsqueeze(0) for k, v in data.items() if k != 'key'}
+                    # print(data)
                     true_scores.extend(data['final_score'].numpy())
-                    clip_feats = data['feature'].to(device)  # B,540,1024
-                    if not args.use_i3d_bb:
-                        clip_feats = linear_bp(clip_feats)  # B,540,1024
+                    clip_feats = data['feature'] # B,540,1024
+
                     start = time.time()
-                    ######### GOAT START ##########
-                    if args.use_goat:
-                        # Use formation features
-                        if args.use_formation:
-                            q = data['formation_features'].to(device)  # B,540,1024
-                            k = q
-                            # clip_feats = attn_encoder(q, k, clip_feats).to(device)
-                            output = attn_encoder(q, k, clip_feats)
-                            clip_feats = output[0].to(device)
-                            attn = output[1].to(device)
-                        # Use bridge-prompt features
-                        elif args.use_bp:
-                            q = data['bp_features'].to(device)  # B,540,768
-                            k = q
-                            # clip_feats = attn_encoder(q, k, clip_feats).to(device)
-                            output = attn_encoder(q, k, clip_feats)
-                            clip_feats = output[0].to(device)
-                            attn = output[1].to(device)
-                        # Use self-attention
-                        elif args.use_self:
-                            q = clip_feats
-                            k = q
-                            # clip_feats = attn_encoder(q, k, clip_feats).to(device)
-                            output = attn_encoder(q, k, clip_feats)
-                            clip_feats = output[0].to(device)
-                            attn = output[1].to(device)
-                        # Use group features
-                        else:
-                            if args.use_cnn_features:
-                                boxes_features = data['cnn_features'].to(device)
-                                boxes_in = data['boxes'].to(device)  # B,T,N,4
-                                q = gcn(boxes_features, boxes_in)  # B,540,1024
-                                k = q
-                                # clip_feats = attn_encoder(q, k, clip_feats).to(device)
-                                output = attn_encoder(q, k, clip_feats)
-                                clip_feats = output[0].to(device)
-                                attn = output[1].to(device)
-                            else:
-                                images_in = data['video'].to(device)  # B,T,C,H,W
-                                boxes_in = data['boxes'].to(device)  # B,T,N,4
-                                q = gcn(images_in, boxes_in)  # B,540,1024
-                                k = q
-                                # clip_feats = attn_encoder(q, k, clip_feats).to(device)
-                                output = attn_encoder(q, k, clip_feats)
-                                clip_feats = output[0].to(device)
-                                attn = output[1].to(device)
-                        if split != 'train':
-                            attn_list.append(attn.to('cpu'))
-                            key_list.append(data['key'])
-                    #########  GOAT END  ##########
-
-                    probs = evaluator(clip_feats.mean(1))
-                    preds = compute_score(args.type, probs, data)
-                    pred_scores.extend([i.item() for i in preds])
-
+                    (loss, probs, attn), grads = grad_fn(clip_feats, data)
                     infer_time = time.time() - start
-                    if split == 'train':
-                        loss = compute_loss(args.type, criterion, probs, data)
-                        optimizer.zero_grad()
-                        loss.backward()
-                        optimizer.step()
+                    if args.use_goat and split != 'train':
+                        attn_list.append(attn)
+                        key_list.append(data['key'])
+                    preds = compute_score(args.type, probs, data)
+                    pred_scores.extend(preds.numpy())
 
+                    if split == 'train':
+                        optimizer(grads)
+
+                # print("pred_scores: ", pred_scores)
+                # print("true_scores: ", true_scores)
                 rho, p = stats.spearmanr(pred_scores, true_scores)
                 pred_scores = np.array(pred_scores)
                 true_scores = np.array(true_scores)
-                RL2 = np.power((pred_scores - true_scores) / (true_scores.max() - true_scores.min()), 2).sum() / true_scores.shape[0]
+                RL2 = np.power((pred_scores - true_scores) / (true_scores.max() - true_scores.min()), 2).sum() / \
+                      true_scores.shape[0]
 
                 if is_main_process():
-                    log_and_print(base_logger, f'epoch:{epoch}, {split} correlation: {rho}, Rl2: {RL2}, Infer_Time: {infer_time:.6f}')
+                    log_and_print(base_logger,
+                                  f'epoch:{epoch}, {split} correlation: {rho}, Rl2: {RL2}, Infer_Time: {infer_time:.6f}')
 
         if rho > rho_best and split == 'test' and is_main_process():
             if args.use_goat:
@@ -299,7 +323,7 @@ def main(dataloaders, i3d, evaluator, base_logger, args):
             if is_main_process():
                 log_and_print(base_logger, '-----New best rho found!-----')
             if args.save:
-                torch.save({'epoch': epoch,
+                ms.save_checkpoint({'epoch': epoch,
                             # 'i3d': i3d.state_dict(),
                             'evaluator': evaluator.state_dict(),
                             'optimizer': optimizer.state_dict(),
@@ -310,9 +334,10 @@ def main(dataloaders, i3d, evaluator, base_logger, args):
                 log_and_print(base_logger, '-----New best RL2 found!-----')
         if is_main_process() and epoch == args.num_epochs - 1:
             log_best(rho_best, RL2_best, epoch_best, args)
-            visual_dict = {'attn': attn_list_log, 'key': key_list_log}
-            dict_root = f'attn_visual/{rho_best:.4f}_attention_visualization.pkl'
-            pickle.dump(visual_dict, open(dict_root, 'wb'))
+            if args.use_goat:
+                visual_dict = {'attn': attn_list_log, 'key': key_list_log}
+                dict_root = f'attn_visual/{rho_best:.4f}_attention_visualization.pkl'
+                pickle.dump(visual_dict, open(dict_root, 'wb'))
 
 
 if __name__ == '__main__':

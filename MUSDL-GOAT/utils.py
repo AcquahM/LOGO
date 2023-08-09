@@ -4,10 +4,13 @@ import logging
 from typing import Union, Optional
 import os
 import csv
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
-from torch.nn.parallel.distributed import DistributedDataParallel
+import mindspore as ms
+from mindspore.dataset import GeneratorDataset
+import mindspore.nn as nn
+import mindspore.ops as ops
+
+
+
 from mmengine.runner import set_random_seed
 from mmengine.device import get_device
 from mmengine.dataset import DefaultSampler
@@ -22,46 +25,48 @@ def setup_env(
         distributed: bool,
         cudnn_benchmark: bool = False,
         backend: str = 'nccl') -> None:
-    if cudnn_benchmark:
-        # Whether to use `cudnn.benchmark` to accelerate training.
-        torch.backends.cudnn.benchmark = True
+    # if cudnn_benchmark:
+    #     # Whether to use `cudnn.benchmark` to accelerate training.
+    #     torch.backends.cudnn.benchmark = True
     set_multi_processing(distributed=distributed)
 
     if distributed and not is_distributed():
         init_dist(launcher, backend=backend)
 
 
-def wrap_model(model: nn.Module,
-               distributed: bool) -> Union[DistributedDataParallel, nn.Module]:
+def wrap_model(model: nn.Cell,
+               distributed: bool):
     # Set `export CUDA_VISIBLE_DEVICES=-1` to enable CPU training.
-    model = model.to(get_device())
+    # model = model.to(get_device())
 
-    if not distributed:
-        return model
+    # if not distributed:
+    #     return model
+    #
+    # model = DistributedDataParallel(
+    #     module=model,
+    #     device_ids=[int(os.environ['LOCAL_RANK'])],
+    #     broadcast_buffers=False,
+    #     find_unused_parameters=False)
+    # return model
 
-    model = DistributedDataParallel(
-        module=model,
-        device_ids=[int(os.environ['LOCAL_RANK'])],
-        broadcast_buffers=False,
-        find_unused_parameters=False)
-    return model
+    ms.set_auto_parallel_context(parallel_mode=ms.ParallelMode.DATA_PARALLEL, gradients_mean=True)
 
 
 def build_dataloader(
-        dataset: Dataset,
+        dataset,
         batch_size: int = 1,
         shuffle: bool = False,
         num_workers: int = 0,
         persistent_workers: bool = True,
         seed: Optional[int] = None
-) -> DataLoader:
+) -> GeneratorDataset:
     sampler = DefaultSampler(dataset, shuffle=shuffle, seed=seed)
-    dataloader = torch.utils.data.DataLoader(
-        dataset=dataset,
-        batch_size=batch_size,
+    dataloader = GeneratorDataset(
+        source=dataset,
         sampler=sampler,
-        num_workers=num_workers,
-        persistent_workers=persistent_workers)
+        num_parallel_workers=num_workers)
+    # persistent_workers: create_tuple_iterator.num_epoch > 1
+    dataloader = dataloader.batch(batch_size)
     return dataloader
 
 
@@ -108,11 +113,10 @@ def init_seed(args):
     """
     random.seed(args.seed)
     np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-
-    torch.cuda.manual_seed_all(args.seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    ms.set_seed(args.seed)
+    ms.dataset.set_seed(args.seed)
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
 
 
 def calc_pairwise_distance_3d(X, Y):
@@ -131,7 +135,7 @@ def calc_pairwise_distance_3d(X, Y):
 
     dist = rx - 2.0 * X.matmul(Y.transpose(1, 2)) + ry.transpose(1, 2)
 
-    return torch.sqrt(dist)
+    return ops.sqrt(dist)
 
 
 def log_best(rho_best, RL2_best, epoch_best, args):
@@ -157,7 +161,7 @@ def log_best(rho_best, RL2_best, epoch_best, args):
         else:
             backbone = 'BP_BB'
 
-        log_list = [format(rho_best, '.4f'), epoch_best, args.use_goat, args.lr, args.num_epochs, args.warmup,
+        log_list = [format(rho_best, '.4f'), epoch_best, args.use_goat, args.lr, args.weight_decay ,args.num_epochs, args.warmup,
                     args.seed, args.train_backbone, args.num_selected_frames, args.num_heads,
                     args.num_layers, args.random_select_frames, args.train_batch_size, args.test_batch_size, args.linear_dim, RL2_best, mode, backbone]
         writer.writerow(log_list)
