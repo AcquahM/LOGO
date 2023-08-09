@@ -36,8 +36,11 @@ def train_net(args):
                                                        num_parallel_workers=int(args.workers),
                                                        shuffle=False).batch(batch_size=args.bs_train)
 
+    column_names = ["data"]
+    for i in range(args.voter_number):
+        column_names.append("target" + str(i))
     test_dataloader = ms.dataset.GeneratorDataset(test_dataset,
-                                                  column_names=["data", "target"],
+                                                  column_names=column_names,
                                                   num_parallel_workers=int(args.workers),
                                                   shuffle=False).batch(batch_size=args.bs_test)
 
@@ -72,12 +75,12 @@ def train_net(args):
         attn_encoder = Encoder_Blocks(args.qk_dim, 1024, args.linear_dim, args.num_heads, args.num_layers, args.attn_drop)
         linear_bp = Linear_For_Backbone(args)
         optimizer = nn.Adam([
-            {'params': gcn.parameters()},
-            {'params': attn_encoder.parameters()},
-            {'params': psnet_model.parameters()},
-            {'params': decoder.parameters()},
-            {'params': linear_bp.parameters()},
-            {'params': regressor_delta.parameters()}
+            {'params': gcn.trainable_params()},
+            {'params': attn_encoder.trainable_params()},
+            {'params': psnet_model.trainable_params()},
+            {'params': decoder.trainable_params()},
+            {'params': linear_bp.trainable_params()},
+            {'params': regressor_delta.trainable_params()}
         ], learning_rate=args.lr, weight_decay=args.weight_decay)
         scheduler = None
         if args.use_multi_gpu:
@@ -99,10 +102,10 @@ def train_net(args):
         attn_encoder = None
         linear_bp = Linear_For_Backbone(args)
         optimizer = nn.Adam([
-            {'params': psnet_model.parameters()},
-            {'params': decoder.parameters()},
-            {'params': linear_bp.parameters()},
-            {'params': regressor_delta.parameters()}
+            {'params': psnet_model.trainable_params()},
+            {'params': decoder.trainable_params()},
+            {'params': linear_bp.trainable_params()},
+            {'params': regressor_delta.trainable_params()}
         ], learning_rate=args.lr, weight_decay=args.weight_decay)
         scheduler = None
         if args.use_multi_gpu:
@@ -163,6 +166,9 @@ def train_net(args):
         # if args.fix_bn:
         #     base_model.apply(misc.fix_bn)
         for idx, (data, target) in enumerate(train_dataloader):
+            if args.bs_train == 1:
+                data = {k: v.unsqueeze(0) for k, v in data.items() if k != 'key'}
+                target = {k: v.unsqueeze(0) for k, v in target.items() if k != 'key'}
             # num_iter += 1
             opti_flag = True
 
@@ -187,20 +193,18 @@ def train_net(args):
             loss, score, Batch_tIoU_5, Batch_tIoU_75 = trainer.train_epoch(feature_1, label_1_score, feature_2, label_2_score, epoch, label_1_tas, label_2_tas, feamap_1, feamap_2, data, target)
             end = time.time()
             batch_time = end - start
-            pred_scores.extend([i.item() for i in score])
+            pred_scores.extend(score.numpy())
             pred_tious_5.extend([Batch_tIoU_5])
             pred_tious_75.extend([Batch_tIoU_75])
 
             batch_idx = idx + 1
             if batch_idx % args.print_freq == 0:
                 print('[Training][%d/%d][%d/%d] \t Batch_time: %.2f \t Batch_loss: %.4f \t '
-                      'lr1 : %0.5f \t lr2 : %0.5f'
-                      % (epoch, args.max_epoch, batch_idx, len(train_dataloader), batch_time, loss.item(),
-                         optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr']))
+                      % (epoch, args.max_epoch, batch_idx, len(train_dataloader), batch_time, loss.item()))
             true_scores.extend(data['final_score'].numpy())
 
         # evaluation results
-        pred_scores = np.array(pred_scores)
+        pred_scores = np.array(pred_scores).squeeze()
         true_scores = np.array(true_scores)
         rho, p = stats.spearmanr(pred_scores, true_scores)
         L2 = np.power(pred_scores - true_scores, 2).sum() / true_scores.shape[0]
@@ -213,9 +217,7 @@ def train_net(args):
             print('[Training] EPOCH: %d, tIoU_5: %.4f, tIoU_75: %.4f'
                   % (epoch, pred_tious_mean_5, pred_tious_mean_75))
             print(
-                '[Training] EPOCH: %d, correlation: %.4f, L2: %.4f, RL2: %.4f, lr1: %.4f' % (epoch, rho, L2, RL2,
-                                                                                             optimizer.param_groups[
-                                                                                                 0]['lr']))
+                '[Training] EPOCH: %d, correlation: %.4f, L2: %.4f, RL2: %.4f' % (epoch, rho, L2, RL2))
             trainer.set_test()
             validate(trainer.base_model, trainer.psnet_model, trainer.decoder, trainer.regressor_delta, test_dataloader, epoch, trainer.optimizer, args, trainer.gcn,
                  trainer.attn_encoder, trainer.linear_bp)
@@ -254,7 +256,13 @@ def validate(base_model, psnet_model, decoder, regressor_delta, test_dataloader,
     # with torch.no_grad():
     datatime_start = time.time()
 
-    for batch_idx, (data, target) in enumerate(test_dataloader, 0):
+    for batch_idx, data_list in enumerate(test_dataloader, 0):
+        data = data_list[0]
+        target = data_list[1:]
+        if args.bs_test == 1:
+            data = {k: v.unsqueeze(0) for k, v in data.items() if k != 'key'}
+            for i in range(len(target)):
+                target[i] = {k: v.unsqueeze(0) for k, v in target[i].items() if k != 'key'}
         datatime = time.time() - datatime_start
         start = time.time()
 
@@ -281,46 +289,49 @@ def validate(base_model, psnet_model, decoder, regressor_delta, test_dataloader,
         datatime_start = time.time()
         true_scores.extend(data['final_score'].numpy())
 
-        # evaluation results
-        pred_scores = np.array(pred_scores)
-        true_scores = np.array(true_scores)
-        rho, p = stats.spearmanr(pred_scores, true_scores)
-        L2 = np.power(pred_scores - true_scores, 2).sum() / true_scores.shape[0]
-        RL2 = np.power((pred_scores - true_scores) / (true_scores.max() - true_scores.min()), 2).sum() / \
-              true_scores.shape[0]
-        pred_tious_test_mean_5 = sum(pred_tious_test_5) / (len(test_dataloader) * args.bs_test)
-        pred_tious_test_mean_75 = sum(pred_tious_test_75) / (len(test_dataloader) * args.bs_test)
+    # evaluation results
+    pred_scores = np.array(pred_scores).squeeze()
+    true_scores = np.array(true_scores)
+    rho, p = stats.spearmanr(pred_scores, true_scores)
+    L2 = np.power(pred_scores - true_scores, 2).sum() / true_scores.shape[0]
+    RL2 = np.power((pred_scores - true_scores) / (true_scores.max() - true_scores.min()), 2).sum() / \
+          true_scores.shape[0]
+    pred_tious_test_mean_5 = sum(pred_tious_test_5) / (len(test_dataloader) * args.bs_test)
+    pred_tious_test_mean_75 = sum(pred_tious_test_75) / (len(test_dataloader) * args.bs_test)
 
-        if pred_tious_test_mean_5 > pred_tious_best_5:
-            pred_tious_best_5 = pred_tious_test_mean_5
-        if pred_tious_test_mean_75 > pred_tious_best_75:
-            pred_tious_best_75 = pred_tious_test_mean_75
-            epoch_best_tas = epoch
-        print('[TEST] EPOCH: %d, tIoU_5: %.6f, tIoU_75: %.6f' % (epoch, pred_tious_best_5, pred_tious_best_75))
+    if pred_tious_test_mean_5 > pred_tious_best_5:
+        pred_tious_best_5 = pred_tious_test_mean_5
+    if pred_tious_test_mean_75 > pred_tious_best_75:
+        pred_tious_best_75 = pred_tious_test_mean_75
+        epoch_best_tas = epoch
+    print('[TEST] EPOCH: %d, tIoU_5: %.6f, tIoU_75: %.6f' % (epoch, pred_tious_best_5, pred_tious_best_75))
 
-        if L2_min > L2:
-            L2_min = L2
-        if RL2_min > RL2:
-            RL2_min = RL2
-        if rho > rho_best:
-            rho_best = rho
-            epoch_best_aqa = epoch
-            print('-----New best found!-----')
-            # helper.save_outputs(pred_scores, true_scores, args)
-            # helper.save_checkpoint(base_model, psnet_model, decoder, regressor_delta, optimizer, epoch, epoch_best_aqa,
-            #                        rho_best, L2_min, RL2_min, 'last', args)
-        if epoch == args.max_epoch - 1:
-            log_best(rho_best, RL2_min, epoch_best_aqa, args)
+    if L2_min > L2:
+        L2_min = L2
+    if RL2_min > RL2:
+        RL2_min = RL2
+    if rho > rho_best:
+        rho_best = rho
+        epoch_best_aqa = epoch
+        print('-----New best found!-----')
+        # helper.save_outputs(pred_scores, true_scores, args)
+        # helper.save_checkpoint(base_model, psnet_model, decoder, regressor_delta, optimizer, epoch, epoch_best_aqa,
+        #                        rho_best, L2_min, RL2_min, 'last', args)
+    if epoch == args.max_epoch - 1:
+        log_best(rho_best, RL2_min, epoch_best_aqa, args)
 
-        print('[TEST] EPOCH: %d, correlation: %.6f, L2: %.6f, RL2: %.6f' % (epoch, rho, L2, RL2))
+    print('[TEST] EPOCH: %d, correlation: %.6f, L2: %.6f, RL2: %.6f' % (epoch, rho, L2, RL2))
 
 
 def test_net(args):
     print('Tester start ... ')
 
     train_dataset, test_dataset = builder.dataset_builder(args)
+    column_names = ["data"]
+    for i in range(args.voter_number):
+        column_names.append("target" + str(i))
     test_dataloader = ms.dataset.GeneratorDataset(test_dataset,
-                                                  column_names=["data", "target"],
+                                                  column_names=column_names,
                                                   num_parallel_workers=int(args.workers),
                                                   shuffle=False).batch(batch_size=args.bs_test)
 
@@ -406,7 +417,13 @@ def test(base_model, psnet_model, decoder, regressor_delta, test_dataloader, arg
     # with torch.no_grad():
     datatime_start = time.time()
 
-    for batch_idx, (data, target) in enumerate(test_dataloader, 0):
+    for batch_idx, data_list in enumerate(test_dataloader, 0):
+        data = data_list[0]
+        target = data_list[1:]
+        if args.bs_test == 1:
+            data = {k: v.unsqueeze(0) for k, v in data.items() if k != 'key'}
+            for i in range(len(target)):
+                target[i] = {k: v.unsqueeze(0) for k, v in target[i].items() if k != 'key'}
         datatime = time.time() - datatime_start
         start = time.time()
 
@@ -433,15 +450,15 @@ def test(base_model, psnet_model, decoder, regressor_delta, test_dataloader, arg
         datatime_start = time.time()
         true_scores.extend(data['final_score'].numpy())
 
-        # evaluation results
-        pred_scores = np.array(pred_scores)
-        true_scores = np.array(true_scores)
-        rho, p = stats.spearmanr(pred_scores, true_scores)
-        L2 = np.power(pred_scores - true_scores, 2).sum() / true_scores.shape[0]
-        RL2 = np.power((pred_scores - true_scores) / (true_scores.max() - true_scores.min()), 2).sum() / \
-              true_scores.shape[0]
-        pred_tious_test_mean_5 = sum(pred_tious_test_5) / (len(test_dataloader) * args.bs_test)
-        pred_tious_test_mean_75 = sum(pred_tious_test_75) / (len(test_dataloader) * args.bs_test)
+    # evaluation results
+    pred_scores = np.array(pred_scores).squeeze()
+    true_scores = np.array(true_scores)
+    rho, p = stats.spearmanr(pred_scores, true_scores)
+    L2 = np.power(pred_scores - true_scores, 2).sum() / true_scores.shape[0]
+    RL2 = np.power((pred_scores - true_scores) / (true_scores.max() - true_scores.min()), 2).sum() / \
+          true_scores.shape[0]
+    pred_tious_test_mean_5 = sum(pred_tious_test_5) / (len(test_dataloader) * args.bs_test)
+    pred_tious_test_mean_75 = sum(pred_tious_test_75) / (len(test_dataloader) * args.bs_test)
 
-        print('[TEST] tIoU_5: %.6f, tIoU_75: %.6f' % (pred_tious_test_mean_5, pred_tious_test_mean_75))
-        print('[TEST] correlation: %.6f, L2: %.6f, RL2: %.6f' % (rho, L2, RL2))
+    print('[TEST] tIoU_5: %.6f, tIoU_75: %.6f' % (pred_tious_test_mean_5, pred_tious_test_mean_75))
+    print('[TEST] correlation: %.6f, L2: %.6f, RL2: %.6f' % (rho, L2, RL2))

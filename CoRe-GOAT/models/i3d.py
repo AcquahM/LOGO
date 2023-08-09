@@ -1,7 +1,10 @@
 import math
 import os
+
 import numpy as np
-import torch
+import mindspore as ms
+import mindspore.nn as nn
+import mindspore.ops as ops
 
 
 def get_padding_shape(filter_shape, stride):
@@ -33,7 +36,7 @@ def simplify_padding(padding_shapes):
     return all_same, padding_init
 
 
-class Unit3Dpy(torch.nn.Module):
+class Unit3Dpy(nn.Cell):
     def __init__(self,
                  in_channels,
                  out_channels,
@@ -60,15 +63,15 @@ class Unit3Dpy(torch.nn.Module):
 
         if padding == 'SAME':
             if not simplify_pad:
-                self.pad = torch.nn.ConstantPad3d(padding_shape, 0)
-                self.conv3d = torch.nn.Conv3d(
+                self.pad = nn.ConstantPad3d(padding_shape, 0)
+                self.conv3d = nn.Conv3d(
                     in_channels,
                     out_channels,
                     kernel_size,
                     stride=stride,
                     bias=use_bias)
             else:
-                self.conv3d = torch.nn.Conv3d(
+                self.conv3d = nn.Conv3d(
                     in_channels,
                     out_channels,
                     kernel_size,
@@ -76,7 +79,7 @@ class Unit3Dpy(torch.nn.Module):
                     padding=pad_size,
                     bias=use_bias)
         elif padding == 'VALID':
-            self.conv3d = torch.nn.Conv3d(
+            self.conv3d = nn.Conv3d(
                 in_channels,
                 out_channels,
                 kernel_size,
@@ -88,38 +91,38 @@ class Unit3Dpy(torch.nn.Module):
                 'padding should be in [VALID|SAME] but got {}'.format(padding))
 
         if self.use_bn:
-            self.batch3d = torch.nn.BatchNorm3d(out_channels)
+            self.batch3d = nn.BatchNorm3d(out_channels)
 
         if activation == 'relu':
-            self.activation = torch.nn.functional.relu
+            self.activation = ops.relu
 
-    def forward(self, inp):
+    def construct(self, inp):
         if self.padding == 'SAME' and self.simplify_pad is False:
             inp = self.pad(inp)
         out = self.conv3d(inp)
         if self.use_bn:
             out = self.batch3d(out)
         if self.activation is not None:
-            out = torch.nn.functional.relu(out)
+            out = ops.relu(out)
         return out
 
 
-class MaxPool3dTFPadding(torch.nn.Module):
+class MaxPool3dTFPadding(nn.Cell):
     def __init__(self, kernel_size, stride=None, padding='SAME'):
         super(MaxPool3dTFPadding, self).__init__()
         if padding == 'SAME':
             padding_shape = get_padding_shape(kernel_size, stride)
             self.padding_shape = padding_shape
-            self.pad = torch.nn.ConstantPad3d(padding_shape, 0)
-        self.pool = torch.nn.MaxPool3d(kernel_size, stride, ceil_mode=True)
+            self.pad = nn.ConstantPad3d(padding_shape, 0)
+        self.pool = nn.MaxPool3d(kernel_size, stride, ceil_mode=True)
 
-    def forward(self, inp):
+    def construct(self, inp):
         inp = self.pad(inp)
         out = self.pool(inp)
         return out
 
 
-class Mixed(torch.nn.Module):
+class Mixed(nn.Cell):
     def __init__(self, in_channels, out_channels):
         super(Mixed, self).__init__()
         # Branch 0
@@ -131,32 +134,32 @@ class Mixed(torch.nn.Module):
             in_channels, out_channels[1], kernel_size=(1, 1, 1))
         branch_1_conv2 = Unit3Dpy(
             out_channels[1], out_channels[2], kernel_size=(3, 3, 3))
-        self.branch_1 = torch.nn.Sequential(branch_1_conv1, branch_1_conv2)
+        self.branch_1 = nn.SequentialCell(branch_1_conv1, branch_1_conv2)
 
         # Branch 2
         branch_2_conv1 = Unit3Dpy(
             in_channels, out_channels[3], kernel_size=(1, 1, 1))
         branch_2_conv2 = Unit3Dpy(
             out_channels[3], out_channels[4], kernel_size=(3, 3, 3))
-        self.branch_2 = torch.nn.Sequential(branch_2_conv1, branch_2_conv2)
+        self.branch_2 = nn.SequentialCell(branch_2_conv1, branch_2_conv2)
 
         # Branch3
         branch_3_pool = MaxPool3dTFPadding(
             kernel_size=(3, 3, 3), stride=(1, 1, 1), padding='SAME')
         branch_3_conv2 = Unit3Dpy(
             in_channels, out_channels[5], kernel_size=(1, 1, 1))
-        self.branch_3 = torch.nn.Sequential(branch_3_pool, branch_3_conv2)
+        self.branch_3 = nn.SequentialCell(branch_3_pool, branch_3_conv2)
 
-    def forward(self, inp):
+    def construct(self, inp):
         out_0 = self.branch_0(inp)
         out_1 = self.branch_1(inp)
         out_2 = self.branch_2(inp)
         out_3 = self.branch_3(inp)
-        out = torch.cat((out_0, out_1, out_2, out_3), 1)
+        out = ops.cat((out_0, out_1, out_2, out_3), 1)
         return out
 
 
-class I3D(torch.nn.Module):
+class I3D(nn.Cell):
     def __init__(self,
                  num_classes,
                  modality='rgb',
@@ -222,23 +225,19 @@ class I3D(torch.nn.Module):
         self.mixed_5b = Mixed(832, [256, 160, 320, 32, 128, 128])
         self.mixed_5c = Mixed(832, [384, 192, 384, 48, 128, 128])
 
-        self.avg_pool = torch.nn.AvgPool3d((2, 7, 7), (1, 1, 1))
-        self.dropout = torch.nn.Dropout(dropout_prob)
+        self.avg_pool = nn.AvgPool3d((2, 7, 7), (1, 1, 1))
+        self.dropout = nn.Dropout(dropout_prob)
         self.conv3d_0c_1x1 = Unit3Dpy(
             in_channels=1024,
             out_channels=self.num_classes,
             kernel_size=(1, 1, 1),
-            activation=None,
+            activation='None',
             use_bias=True,
             use_bn=False)
-        self.softmax = torch.nn.Softmax(1)
+        self.softmax = nn.Softmax(1)
         # self.softmax = torch.nn.Sigmiod(1)
 
-    def get_logits_dim(self):
-        return 1024
-
-    def forward(self, inp):
-        # Preprocessing
+    def construct(self, inp):
         out = self.conv3d_1a_7x7(inp)
         out = self.maxPool3d_2a_3x3(out)
         out = self.conv3d_2b_1x1(out)
@@ -360,7 +359,6 @@ def _get_padding(padding_name, conv_shape):
     if padding_name == "VALID":
         return [0, 0]
     elif padding_name == "SAME":
-        # return [math.ceil(int(conv_shape[0])/2), math.ceil(int(conv_shape[1])/2)]
         return [
             math.floor(int(conv_shape[0]) / 2),
             math.floor(int(conv_shape[1]) / 2),
@@ -382,9 +380,9 @@ def load_conv3d(state_dict, name_pt, sess, name_tf, bias=False, bn=True):
     conv_weights_rs = np.transpose(
         conv_weights, (4, 3, 0, 1,
                        2))  # to pt format (out_c, in_c, depth, height, width)
-    state_dict[name_pt + '.conv3d.weight'] = torch.from_numpy(conv_weights_rs)
+    state_dict[name_pt + '.conv3d.weight'] = ms.Tensor.from_numpy(conv_weights_rs)
     if bias:
-        state_dict[name_pt + '.conv3d.bias'] = torch.from_numpy(conv_bias)
+        state_dict[name_pt + '.conv3d.bias'] = ms.Tensor.from_numpy(conv_bias)
 
     # Transfer batch norm params
     if bn:
@@ -392,13 +390,13 @@ def load_conv3d(state_dict, name_pt, sess, name_tf, bias=False, bn=True):
         moving_mean, moving_var, beta = get_bn_params(sess, conv_tf_name)
 
         out_planes = conv_weights_rs.shape[0]
-        state_dict[name_pt + '.batch3d.weight'] = torch.ones(out_planes)
+        state_dict[name_pt + '.batch3d.weight'] = ops.ones(out_planes)
         state_dict[name_pt +
-                   '.batch3d.bias'] = torch.from_numpy(beta.squeeze())
+                   '.batch3d.bias'] = ms.Tensor.from_numpy(beta.squeeze())
         state_dict[name_pt
-                   + '.batch3d.running_mean'] = torch.from_numpy(moving_mean.squeeze())
+                   + '.batch3d.running_mean'] = ms.Tensor.from_numpy(moving_mean.squeeze())
         state_dict[name_pt
-                   + '.batch3d.running_var'] = torch.from_numpy(moving_var.squeeze())
+                   + '.batch3d.running_var'] = ms.Tensor.from_numpy(moving_var.squeeze())
 
 
 def load_mixed(state_dict, name_pt, sess, name_tf, fix_typo=False):

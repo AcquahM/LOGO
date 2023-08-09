@@ -317,7 +317,7 @@ def network_forward_train(base_model, psnet_model, decoder, regressor_delta, pre
     batch_time = end - start
 
     score = (delta[:delta.shape[0] // 2].detach() + label_2_score)
-    pred_scores.extend([i.item() for i in score])
+    pred_scores.extend(score.numpy())
 
     tIoU_results = []
     for bs in range(transits_pred.shape[0] // 2):
@@ -464,7 +464,7 @@ def network_forward_test(base_model, psnet_model, decoder, regressor_delta, pred
             tIoU_results.append(segment_iou(np.array(label_12_tas.squeeze(-1).cpu())[bs],
                                             np.array(transits_st_ed.squeeze(-1).cpu())[bs], args))
 
-    pred_scores.extend([i.item() / len(feature_2_list) for i in score])
+    pred_scores.extend((score / len(feature_2_list)).numpy())
 
     tIoU_results_mean = [sum(tIoU_results) / len(tIoU_results)]
     tiou_thresholds = np.array([0.5, 0.75])

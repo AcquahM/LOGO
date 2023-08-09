@@ -1,31 +1,30 @@
-import torch.nn as nn
-import torch
 from .i3d import I3D
 import logging
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import mindspore as ms
+import mindspore.nn as nn
+import mindspore.ops as ops
+
 import torchvision.models as models
 
 
-class I3D_backbone(nn.Module):
+class I3D_backbone(nn.Cell):
     def __init__(self, I3D_class):
         super(I3D_backbone, self).__init__()
         print('Using I3D backbone')
         self.backbone = I3D(num_classes=I3D_class, modality='rgb', dropout_prob=0.5)
 
     def load_pretrain(self, I3D_ckpt_path):
-        self.backbone.load_state_dict(torch.load(I3D_ckpt_path))
+        self.backbone.load_state_dict(ms.load(I3D_ckpt_path))
         print('loading ckpt done')
 
     def get_feature_dim(self):
         return self.backbone.get_logits_dim()
 
-    def forward(self, target, exemplar, is_train, label, theta):
+    def construct(self, target, exemplar, is_train, label, theta):
         # spatiotemporal feature
-        total_video = torch.cat((target, exemplar), 0)  # 2N C H W
+        total_video = ops.cat((target, exemplar), 0)  # 2N C H W
         start_idx = [0, 10, 20, 30, 40, 50, 60, 70, 80, 86]
-        video_pack = torch.cat([total_video[:, :, i: i + 16] for i in start_idx])  # 10*2N, c, 16, h, w
+        video_pack = ops.cat([total_video[:, :, i: i + 16] for i in start_idx])  # 10*2N, c, 16, h, w
         total_feature = self.backbone(video_pack).reshape(10, len(total_video), -1).transpose(0, 1)  # 2N * 10 * 1024
         total_feature = total_feature.mean(1)
         # 2N * 1024
@@ -34,15 +33,15 @@ class I3D_backbone(nn.Module):
         feature_2 = total_feature[total_feature.shape[0] // 2:]
         # N * 1024
         if is_train:
-            combined_feature_1 = torch.cat((feature_1, feature_2, label[0] / theta), 1)  # 1 is exemplar N * 2049
-            combined_feature_2 = torch.cat((feature_2, feature_1, label[1] / theta), 1)  # 2 is exemplar N * 2049
+            combined_feature_1 = ops.cat((feature_1, feature_2, label[0] / theta), 1)  # 1 is exemplar N * 2049
+            combined_feature_2 = ops.cat((feature_2, feature_1, label[1] / theta), 1)  # 2 is exemplar N * 2049
             return combined_feature_1, combined_feature_2
         else:
-            combined_feature = torch.cat((feature_2, feature_1, label[0] / theta), 1)  # 2 is exemplar
+            combined_feature = ops.cat((feature_2, feature_1, label[0] / theta), 1)  # 2 is exemplar
             return combined_feature
 
 
-class MyInception_v3(nn.Module):
+class MyInception_v3(nn.Cell):
     def __init__(self, transform_input=False, pretrained=False):
         super(MyInception_v3, self).__init__()
         self.transform_input = transform_input
@@ -62,7 +61,7 @@ class MyInception_v3(nn.Module):
         self.Mixed_6d = inception.Mixed_6d
         self.Mixed_6e = inception.Mixed_6e
 
-    def forward(self, x):
+    def construct(self, x):
         outputs = []
 
         if self.transform_input:
@@ -77,13 +76,13 @@ class MyInception_v3(nn.Module):
         # 147 x 147 x 32
         x = self.Conv2d_2b_3x3(x)
         # 147 x 147 x 64
-        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = ops.max_pool2d(x, kernel_size=3, stride=2)
         # 73 x 73 x 64
         x = self.Conv2d_3b_1x1(x)
         # 73 x 73 x 80
         x = self.Conv2d_4a_3x3(x)
         # 71 x 71 x 192
-        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = ops.max_pool2d(x, kernel_size=3, stride=2)
         # 35 x 35 x 192
         x = self.Mixed_5b(x)
         # 35 x 35 x 256
@@ -108,7 +107,7 @@ class MyInception_v3(nn.Module):
         return outputs  # cuda:0
 
 
-class MyVGG16(nn.Module):
+class MyVGG16(nn.Cell):
     def __init__(self, pretrained=False):
         super(MyVGG16, self).__init__()
 
@@ -116,12 +115,12 @@ class MyVGG16(nn.Module):
 
         self.features = vgg.features
 
-    def forward(self, x):
+    def construct(self, x):
         x = self.features(x)
         return [x]
 
 
-class MyVGG19(nn.Module):
+class MyVGG19(nn.Cell):
     def __init__(self, pretrained=False):
         super(MyVGG19, self).__init__()
 
@@ -129,6 +128,6 @@ class MyVGG19(nn.Module):
 
         self.features = vgg.features
 
-    def forward(self, x):
+    def construct(self, x):
         x = self.features(x)
         return [x]

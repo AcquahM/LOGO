@@ -108,7 +108,7 @@ class FineDiving_Pair_Dataset():
             frame_list = np.linspace(start_frame, end_frame, length).astype(np.int)
             image_frame_idx = [frame_list[i] - start_frame for i in range(length)]
             video = [Image.open(image_list[image_frame_idx[i]]) for i in range(length)]
-            return transforms(video).transpose(0, 1), image_frame_idx
+            return transforms(video).transpose(0, 1).numpy(), image_frame_idx
         else:
             T = len(image_list)
             img_idx_list = np.arange(T)
@@ -117,7 +117,7 @@ class FineDiving_Pair_Dataset():
             image_frame_idx = [img_idx_list[idx_list[i]] for i in range(length)]
 
             video = [Image.open(image_list[image_frame_idx[i]]) for i in range(length)]
-            return transforms(video).transpose(0, 1), image_frame_idx
+            return transforms(video).transpose(0, 1).numpy(), image_frame_idx
 
     def load_transits(self, video_file_name):
         image_list = sorted((glob.glob(os.path.join(self.data_root, video_file_name[0], str(video_file_name[1]), '*.jpg'))))
@@ -241,7 +241,7 @@ class FineDiving_Pair_Dataset():
         if self.args.use_goat:
             if self.args.use_formation:
                 # use formation features
-                data['formation_features'] = self.formation_features_dict[key]  # 540,1024 [Middle]
+                data['formation_features'] = self.formation_features_dict[key].numpy()  # 540,1024 [Middle]
             elif self.args.use_bp:
                 # use bp features
                 file_name = key[0] + '_' + str(key[1]) + '.npy'
@@ -266,8 +266,8 @@ class FineDiving_Pair_Dataset():
                         selected_frames_idx = self.random_select_idx(image_frame_idx)
                     else:
                         selected_frames_idx = self.select_middle_idx(image_frame_idx)
-                    data['boxes'] = self.load_boxes(key, selected_frames_idx, self.out_size)  # 540*t,N,4
-                    data['cnn_features'] = self.cnn_feature_dict[key].squeeze(0)
+                    data['boxes'] = self.load_boxes(key, selected_frames_idx, self.out_size).numpy()  # 540*t,N,4
+                    data['cnn_features'] = self.cnn_feature_dict[key].squeeze(0).numpy()
                 else:
                     frames_path = os.path.join(self.data_root, key[0], str(key[1]))
                     video, image_frame_idx = self.load_video(frames_path)  # T,C,H,W
@@ -275,7 +275,7 @@ class FineDiving_Pair_Dataset():
                         selected_frames, selected_frames_idx = self.random_select_frames(video, image_frame_idx)
                     else:
                         selected_frames, selected_frames_idx = self.select_middle_frames(video, image_frame_idx)
-                    data['boxes'] = self.load_boxes(key, selected_frames_idx, self.out_size)  # 540*t,N,4
+                    data['boxes'] = self.load_boxes(key, selected_frames_idx, self.out_size).numpy()  # 540*t,N,4
                     data['video'] = selected_frames  # 540*t,C,H,W
         return data
 
@@ -317,8 +317,8 @@ class FineDiving_Pair_Dataset():
             sample_2 = file_list[idx]
             target = {}
             # target['video'], target['transits'], target['frame_labels'] = self.load_video(sample_2)
-            target['feature'] = self.feature_dict[sample_2]
-            target['feamap'] = self.feamap_dict[sample_2]
+            target['feature'] = self.feature_dict[sample_2].numpy()
+            target['feamap'] = self.feamap_dict[sample_2].numpy()
             frames_path = os.path.join(self.data_root, sample_2[0], str(sample_2[1]))
             target['transits'], target['frame_labels'] = self.load_transits(sample_2)
             target['number'] = self.data_anno.get(sample_2)[0]
@@ -349,8 +349,8 @@ class FineDiving_Pair_Dataset():
             for item in choosen_sample_list:
                 tmp = {}
                 # tmp['video'], tmp['transits'], tmp['frame_labels'] = self.load_video(item)
-                tmp['feature'] = self.feature_dict[item]
-                tmp['feamap'] = self.feamap_dict[item]
+                tmp['feature'] = self.feature_dict[item].numpy()
+                tmp['feamap'] = self.feamap_dict[item].numpy()
                 frames_path = os.path.join(self.data_root, item[0], str(item[1]))
                 tmp['transits'], tmp['frame_labels'] = self.load_transits(item)
                 tmp['number'] = self.data_anno.get(item)[0]
@@ -362,7 +362,7 @@ class FineDiving_Pair_Dataset():
                 tmp = self.load_goat_data(tmp, item)
 
                 target_list.append(tmp)
-            return data, target_list
+            return data, *target_list
 
     def __len__(self):
         return len(self.dataset)

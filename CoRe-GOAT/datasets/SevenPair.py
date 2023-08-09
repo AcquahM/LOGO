@@ -1,11 +1,10 @@
-import torch
 import scipy.io
 import os
 import random
 from utils import misc
 from PIL import Image
 
-class SevenPair_Dataset(torch.utils.data.Dataset):
+class SevenPair_Dataset():
     def __init__(self, args, subset, transform):
         random.seed(args.seed)
         self.subset = subset
@@ -59,7 +58,7 @@ class SevenPair_Dataset(torch.utils.data.Dataset):
         data = {}
         if self.subset == 'test':
             # test phase
-            data['video'] = self.load_video(idx)
+            data['video'] = self.load_video(idx).numpy()
             data['final_score'] = misc.normalize(sample_1[2], self.class_idx, self.score_range)
             # choose a list of sample in training_set
             train_file_list = self.split.copy()
@@ -70,13 +69,13 @@ class SevenPair_Dataset(torch.utils.data.Dataset):
             for item in choosen_sample_list:
                 tmp = {}
                 tmp_idx = int(item[1])
-                tmp['video'] = self.load_video(tmp_idx)
+                tmp['video'] = self.load_video(tmp_idx).numpy()
                 tmp['final_score'] = misc.normalize(item[2], self.class_idx, self.score_range)
                 target_list.append(tmp)
-            return data , target_list
+            return data , *target_list
         else:
             # train phase
-            data['video'] = self.load_video(idx)
+            data['video'] = self.load_video(idx).numpy()
             data['final_score'] = misc.normalize(sample_1[2], self.class_idx, self.score_range)
          
             # choose a sample
@@ -91,7 +90,7 @@ class SevenPair_Dataset(torch.utils.data.Dataset):
             sample_2 = file_list[tmp_idx]
             target = {}
             # sample 2
-            target['video'] = self.load_video(int(sample_2[1]))
+            target['video'] = self.load_video(int(sample_2[1])).numpy()
             target['final_score'] = misc.normalize(sample_2[2], self.class_idx, self.score_range)
             return data , target
     def __len__(self):

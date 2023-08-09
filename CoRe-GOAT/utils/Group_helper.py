@@ -1,7 +1,8 @@
-import torch
+import mindspore as ms
+
 
 class Group_helper(object):
-    def __init__(self, dataset, depth, Symmetrical = True, Max = None, Min = None):
+    def __init__(self, dataset, depth, Symmetrical=True, Max=None, Min=None):
         '''
             dataset : list of deltas (CoRe method) or list of scores (RT method)
             depth : depth of the tree
@@ -11,7 +12,7 @@ class Group_helper(object):
         '''
         self.dataset = sorted(dataset)
         self.length = len(dataset)
-        self.num_leaf = 2**(depth-1)
+        self.num_leaf = 2 ** (depth - 1)
         self.symmetrical = Symmetrical
         self.max = Max
         self.min = Min
@@ -26,42 +27,43 @@ class Group_helper(object):
             # delta in dataset is the part bigger than zero.
             for i in range(self.num_leaf // 2):
                 # bulid positive half first
-                Region_left = self.dataset[int( (i / (self.num_leaf//2)) * (self.length-1) )]
-                
+                Region_left = self.dataset[int((i / (self.num_leaf // 2)) * (self.length - 1))]
+
                 if i == 0:
                     if self.min != None:
                         Region_left = self.min
                     else:
                         Region_left = self.dataset[0]
-                Region_right = self.dataset[int( ( (i + 1) /(self.num_leaf//2)) * (self.length-1) )]
-                if i == self.num_leaf//2 - 1:
+                Region_right = self.dataset[int(((i + 1) / (self.num_leaf // 2)) * (self.length - 1))]
+                if i == self.num_leaf // 2 - 1:
                     if self.max != None:
-                        Region_right = self.max 
+                        Region_right = self.max
                     else:
                         Region_right = self.dataset[-1]
-                self.Group[self.num_leaf // 2 + i] = [Region_left,Region_right]
+                self.Group[self.num_leaf // 2 + i] = [Region_left, Region_right]
             for i in range(self.num_leaf // 2):
-                self.Group[i] = [-i for i in self.Group[self.num_leaf - 1 -i ]]
+                self.Group[i] = [-i for i in self.Group[self.num_leaf - 1 - i]]
             for group in self.Group:
                 group.sort()
         else:
             for i in range(self.num_leaf):
-                Region_left = self.dataset[int( (i / self.num_leaf) * (self.length-1) )]
+                Region_left = self.dataset[int((i / self.num_leaf) * (self.length - 1))]
                 if i == 0:
                     if self.min != None:
                         Region_left = self.min
                     else:
                         Region_left = self.dataset[0]
-                Region_right = self.dataset[int( ( (i + 1) / self.num_leaf) * (self.length-1) )]
+                Region_right = self.dataset[int(((i + 1) / self.num_leaf) * (self.length - 1))]
                 if i == self.num_leaf - 1:
                     if self.max != None:
-                        Region_right = self.max 
+                        Region_right = self.max
                     else:
                         Region_right = self.dataset[-1]
-                self.Group[i] = [Region_left,Region_right]
+                self.Group[i] = [Region_left, Region_right]
+
     def produce_label(self, scores):
-        if isinstance(scores,torch.Tensor):
-            scores = scores.detach().cpu().numpy().reshape(-1,)
+        if isinstance(scores, ms.Tensor):
+            scores = scores.numpy().reshape(-1, )
         glabel = []
         rlabel = []
         for i in range(self.num_leaf):
@@ -81,15 +83,16 @@ class Group_helper(object):
                     if self.Group[i][1] == self.Group[i][0]:
                         rposition = score - self.Group[i][0]
                     else:
-                        rposition =  (score - self.Group[i][0])/(self.Group[i][1] - self.Group[i][0])
+                        rposition = (score - self.Group[i][0]) / (self.Group[i][1] - self.Group[i][0])
                 else:
                     rposition = -1
                 laef_reg.append(rposition)
             glabel.append(leaf_cls)
             rlabel.append(laef_reg)
-        glabel =  torch.tensor(glabel).cuda()
-        rlabel =  torch.tensor(rlabel).cuda()
-        return glabel , rlabel
+        glabel = ms.tensor(glabel)
+        rlabel = ms.tensor(rlabel)
+        return glabel, rlabel
+
     def inference(self, probs, deltas):
         '''
             probs: bs * leaf
@@ -97,7 +100,7 @@ class Group_helper(object):
         '''
         predictions = []
         for n in range(probs.shape[0]):
-            prob = probs[n] 
+            prob = probs[n]
             delta = deltas[n]
             leaf_id = prob.argmax()
             if self.Group[leaf_id][0] == self.Group[leaf_id][1]:
@@ -105,7 +108,8 @@ class Group_helper(object):
             else:
                 prediction = self.Group[leaf_id][0] + (self.Group[leaf_id][1] - self.Group[leaf_id][0]) * delta[leaf_id]
             predictions.append(prediction)
-        return torch.tensor(predictions).reshape(-1,1)
+        return ms.tensor(predictions).reshape(-1, 1)
+
     def get_Group(self):
         return self.Group
 
