@@ -184,52 +184,52 @@ def main(dataloaders, i3d, evaluator, base_logger, args):
         if not args.use_i3d_bb:
             clip_feats = linear_bp(clip_feats)  # B,540,1024
         attn = None
-        # if args.use_goat:
-        #     # Use formation features
-        #     if args.use_formation:
-        #         q = data['formation_features']  # B,540,1024
-        #         k = q
-        #         # clip_feats = attn_encoder(q, k, clip_feats).to(device)
-        #         output = attn_encoder(q, k, clip_feats)
-        #         clip_feats = output[0]
-        #         attn = output[1]
-        #     # Use bridge-prompt features
-        #     elif args.use_bp:
-        #         q = data['bp_features']  # B,540,768
-        #         k = q
-        #         # clip_feats = attn_encoder(q, k, clip_feats).to(device)
-        #         output = attn_encoder(q, k, clip_feats)
-        #         clip_feats = output[0]
-        #         attn = output[1]
-        #     # Use self-attention
-        #     elif args.use_self:
-        #         q = clip_feats
-        #         k = q
-        #         # clip_feats = attn_encoder(q, k, clip_feats).to(device)
-        #         output = attn_encoder(q, k, clip_feats)
-        #         clip_feats = output[0]
-        #         attn = output[1]
-        #     # Use group features
-        #     else:
-        #         if args.use_cnn_features:
-        #             boxes_features = data['cnn_features']
-        #             boxes_in = data['boxes']  # B,T,N,4
-        #             q = gcn(boxes_features, boxes_in)  # B,540,1024
-        #             k = q
-        #             # clip_feats = attn_encoder(q, k, clip_feats).to(device)
-        #             output = attn_encoder(q, k, clip_feats)
-        #             clip_feats = output[0]
-        #             attn = output[1]
-        #         else:
-        #             images_in = data['video']  # B,T,C,H,W
-        #             boxes_in = data['boxes']  # B,T,N,4
-        #             q = gcn(images_in, boxes_in)  # B,540,1024
-        #             k = q
-        #             # clip_feats = attn_encoder(q, k, clip_feats).to(device)
-        #             output = attn_encoder(q, k, clip_feats)
-        #             clip_feats = output[0]
-        #             attn = output[1]
-        # #########  GOAT END  ##########
+        if args.use_goat:
+            # Use formation features
+            if args.use_formation:
+                q = data['formation_features']  # B,540,1024
+                k = q
+                # clip_feats = attn_encoder(q, k, clip_feats).to(device)
+                output = attn_encoder(q, k, clip_feats)
+                clip_feats = output[0]
+                attn = output[1]
+            # Use bridge-prompt features
+            elif args.use_bp:
+                q = data['bp_features']  # B,540,768
+                k = q
+                # clip_feats = attn_encoder(q, k, clip_feats).to(device)
+                output = attn_encoder(q, k, clip_feats)
+                clip_feats = output[0]
+                attn = output[1]
+            # Use self-attention
+            elif args.use_self:
+                q = clip_feats
+                k = q
+                # clip_feats = attn_encoder(q, k, clip_feats).to(device)
+                output = attn_encoder(q, k, clip_feats)
+                clip_feats = output[0]
+                attn = output[1]
+            # Use group features
+            else:
+                if args.use_cnn_features:
+                    boxes_features = data['cnn_features']
+                    boxes_in = data['boxes']  # B,T,N,4
+                    q = gcn(boxes_features, boxes_in)  # B,540,1024
+                    k = q
+                    # clip_feats = attn_encoder(q, k, clip_feats).to(device)
+                    output = attn_encoder(q, k, clip_feats)
+                    clip_feats = output[0]
+                    attn = output[1]
+                else:
+                    images_in = data['video']  # B,T,C,H,W
+                    boxes_in = data['boxes']  # B,T,N,4
+                    q = gcn(images_in, boxes_in)  # B,540,1024
+                    k = q
+                    # clip_feats = attn_encoder(q, k, clip_feats).to(device)
+                    output = attn_encoder(q, k, clip_feats)
+                    clip_feats = output[0]
+                    attn = output[1]
+        #########  GOAT END  ##########
         # print(clip_feats.mean(1))
         probs = evaluator(clip_feats.mean(1))
         loss = compute_loss(args.type, criterion, probs, data)
@@ -289,21 +289,23 @@ def main(dataloaders, i3d, evaluator, base_logger, args):
                     # print(data)
                     true_scores.extend(data['final_score'].numpy())
                     clip_feats = data['feature'] # B,540,1024
-
-                    start = time.time()
-                    (loss, probs, attn), grads = grad_fn(clip_feats, data)
-                    infer_time = time.time() - start
-                    if args.use_goat and split != 'train':
-                        attn_list.append(attn)
-                        key_list.append(data['key'])
+                    if split == 'train':
+                        start = time.time()
+                        (loss, probs, attn), grads = grad_fn(clip_feats, data)
+                        optimizer(grads)
+                        infer_time = time.time() - start
+                    elif split == 'test':
+                        start = time.time()
+                        loss, probs, attn = forward_fn(clip_feats, data)
+                        infer_time = time.time() - start
+                        if args.use_goat:
+                            attn_list.append(attn)
+                            key_list.append(data['key'])
                     preds = compute_score(args.type, probs, data)
                     pred_scores.extend(preds.numpy())
 
-                    if split == 'train':
-                        optimizer(grads)
-
-                # print("pred_scores: ", pred_scores)
-                # print("true_scores: ", true_scores)
+                print("pred_scores: ", pred_scores)
+                print("true_scores: ", true_scores)
                 rho, p = stats.spearmanr(pred_scores, true_scores)
                 pred_scores = np.array(pred_scores)
                 true_scores = np.array(true_scores)

@@ -3,15 +3,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.join(BASE_DIR, "../"))
 
-import torch
-import torch.optim as optim
-from models import I3D_backbone
 from models.PS import PSNet
 from utils.misc import import_class
 from torchvideotransforms import video_transforms, volume_transforms
 from models import decoder_fuser
 from models import MLP_score
 
+import mindspore as ms
+import mindspore.nn as nn
 
 def get_video_trans():
     train_trans = video_transforms.Compose([
@@ -48,11 +47,11 @@ def model_builder(args):
 
 def build_opti_sche(base_model, psnet_model, decoder, regressor_delta, args):
     if args.optimizer == 'Adam':
-        optimizer = optim.Adam([
+        optimizer = nn.Adam([
             {'params': psnet_model.parameters()},
             {'params': decoder.parameters()},
             {'params': regressor_delta.parameters()}
-        ], lr=args.lr, weight_decay=args.weight_decay)
+        ], learning_rate=args.lr, weight_decay=args.weight_decay)
     else:
         raise NotImplementedError()
 
@@ -68,7 +67,7 @@ def resume_train(base_model, psnet_model, decoder, regressor_delta, optimizer, a
     print('Loading weights from %s...' % ckpt_path)
 
     # load state dict
-    state_dict = torch.load(ckpt_path, map_location='cpu')
+    state_dict = ms.load(ckpt_path)
 
     # parameter resume of base model
     base_ckpt = {k.replace("module.", ""): v for k, v in state_dict['base_model'].items()}
@@ -103,7 +102,7 @@ def load_model(base_model, psnet_model, decoder, regressor_delta, args):
     print('Loading weights from %s...' % ckpt_path)
 
     # load state dict
-    state_dict = torch.load(ckpt_path,map_location='cpu')
+    state_dict = ms.load(ckpt_path)
 
     # parameter resume of base model
     base_ckpt = {k.replace("module.", ""): v for k, v in state_dict['base_model'].items()}

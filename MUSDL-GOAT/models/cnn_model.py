@@ -107,12 +107,12 @@ class GCNnet_artisticswimming(nn.Cell):
         self.gcn_list = nn.CellList([GCN_Module(args) for i in range(self.args.gcn_layers)])
         self.dropout_global = nn.Dropout(p=self.args.train_dropout_prob)
 
-        # initial
-        # for m in self.modules():
-        #     if isinstance(m, nn.Dense):
-        #         nn.init.kaiming_normal_(m.weight)
-        #         if m.bias is not None:
-        #             nn.init.zeros_(m.bias)
+        for _, cell in self.cells_and_names():
+            if isinstance(cell, nn.Dense):
+                cell.weight.set_data(ms.common.initializer.initializer(
+                    ms.common.initializer.HeNormal(), cell.weight.shape, cell.weight.dtype))
+                if cell.has_bias:
+                    cell.bias.set_data(ms.common.initializer.initializer("zeros", cell.bias.shape, cell.bias.dtype))
 
     def loadmodel(self, filepath):
         state = ms.load(filepath)

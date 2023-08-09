@@ -1,7 +1,4 @@
-import os
-import sys
-
-import torch
+# import torch
 from tools import train_net, test_net
 from utils.parser import get_args
 from utils.goat_utils import setup_env, init_seed
@@ -9,9 +6,9 @@ from mmengine.dist import is_main_process
 
 
 def main():
-    print(torch.cuda.device_count())
-    torch.backends.cudnn.enabled = False
-    torch.backends.cudnn.benchmark = True
+    # print(torch.cuda.device_count())
+    # torch.backends.cudnn.enabled = False
+    # torch.backends.cudnn.benchmark = True
     args = get_args()
     if args.use_bp:
         args.qk_dim = 768

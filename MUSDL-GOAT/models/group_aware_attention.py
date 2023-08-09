@@ -1,4 +1,5 @@
 import math
+import mindspore as ms
 import mindspore.ops as ops
 import mindspore.nn as nn
 
@@ -20,11 +21,12 @@ class Attention(nn.Cell):
         self.proj = nn.Dense(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-        # for m in self.modules():
-        #     if isinstance(m, nn.Dense):
-        #         nn.init.kaiming_normal_(m.weight)
-        #         if m.bias is not None:
-        #             nn.init.zeros_(m.bias)
+        for _, cell in self.cells_and_names():
+            if isinstance(cell, nn.Dense):
+                cell.weight.set_data(ms.common.initializer.initializer(
+                    ms.common.initializer.HeNormal(), cell.weight.shape, cell.weight.dtype))
+                if cell.has_bias:
+                    cell.bias.set_data(ms.common.initializer.initializer("zeros", cell.bias.shape, cell.bias.dtype))
 
     def construct(self, q_in, k_in, x):
         B, N, C = x.shape

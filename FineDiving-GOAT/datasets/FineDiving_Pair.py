@@ -1,4 +1,5 @@
-import torch
+import mindspore as ms
+import mindspore.ops as ops
 import numpy as np
 import os
 import pickle
@@ -9,7 +10,11 @@ from os.path import join
 from PIL import Image
 
 
-class FineDiving_Pair_Dataset(torch.utils.data.Dataset):
+def convert_tensor(x):
+    return x.numpy()
+
+
+class FineDiving_Pair_Dataset():
     def __init__(self, args, subset, transform):
         random.seed(args.seed)
         if args.use_i3d_bb:
@@ -134,7 +139,7 @@ class FineDiving_Pair_Dataset(torch.utils.data.Dataset):
         else:
             frame_labels_1 = self.data_anno.get(video_file_name)[4]
             TT = frame_labels_1.shape[0]
-            frame_labels_1 = torch.from_numpy(frame_labels_1).unsqueeze(-1).expand(len(image_list), 2)
+            frame_labels_1 = ms.Tensor.from_numpy(frame_labels_1).unsqueeze(-1).expand(len(image_list), 2)
             frame_labels_1 = frame_labels_1.reshape(-1)
             TT1 = frame_labels_1.shape[0]
             frame_labels_1 = frame_labels_1.tolist()
@@ -190,14 +195,14 @@ class FineDiving_Pair_Dataset(torch.utils.data.Dataset):
                     w = w * W
                     h = h * H
                     tmp_x1, tmp_y1, tmp_x2, tmp_y2 = x, y, x + w, y + h
-                    tmp_bbox.append(torch.tensor([x, y, x + w, y + h]).unsqueeze(0))  # 1,4 x1,y1,x2,y2
+                    tmp_bbox.append(ms.tensor([x, y, x + w, y + h]).unsqueeze(0))  # 1,4 x1,y1,x2,y2
             if len(person_idx_list) < N:
                 step = len(person_idx_list)
                 while step < N:
-                    tmp_bbox.append(torch.tensor([tmp_x1, tmp_y1, tmp_x2, tmp_y2]).unsqueeze(0))  # 1,4
+                    tmp_bbox.append(ms.tensor([tmp_x1, tmp_y1, tmp_x2, tmp_y2]).unsqueeze(0))  # 1,4
                     step += 1
-            boxes.append(torch.cat(tmp_bbox).unsqueeze(0))  # 1,N,4
-        boxes_tensor = torch.cat(boxes)
+            boxes.append(ops.cat(tmp_bbox).unsqueeze(0))  # 1,N,4
+        boxes_tensor = ops.cat(boxes)
         return boxes_tensor
 
     def random_select_frames(self, video, image_frame_idx):
@@ -210,7 +215,7 @@ class FineDiving_Pair_Dataset(torch.utils.data.Dataset):
             random_sample_list = random.sample(select_list_per_clip, num_selected_frames)
             selected_frames_list.extend([video[10 * i + j].unsqueeze(0) for j in random_sample_list])
             selected_frames_idx.extend([image_frame_idx[10 * i + j] for j in random_sample_list])
-        selected_frames = torch.cat(selected_frames_list, dim=0)  # 540*t,C,H,W; t=num_selected_frames
+        selected_frames = ops.cat(selected_frames_list, axis=0)  # 540*t,C,H,W; t=num_selected_frames
         return selected_frames, selected_frames_idx
 
     def random_select_idx(self, image_frame_idx):
@@ -240,7 +245,7 @@ class FineDiving_Pair_Dataset(torch.utils.data.Dataset):
             elif self.args.use_bp:
                 # use bp features
                 file_name = key[0] + '_' + str(key[1]) + '.npy'
-                bp_features_ori = torch.tensor(np.load(os.path.join(self.bp_feature_path, file_name)))  # T_ori,768
+                bp_features_ori = ms.tensor(np.load(os.path.join(self.bp_feature_path, file_name)))  # T_ori,768
                 if bp_features_ori.shape[0] == 768:
                     bp_features_ori = bp_features_ori.reshape(-1, 768)
                 frames_path = os.path.join(self.data_root, key[0], str(key[1]))
@@ -250,7 +255,7 @@ class FineDiving_Pair_Dataset(torch.utils.data.Dataset):
                 else:
                     selected_frames_idx = self.select_middle_idx(image_frame_idx)
                 bp_features_list = [bp_features_ori[i].unsqueeze(0) for i in selected_frames_idx]  # [1,768]
-                data['bp_features'] = torch.cat(bp_features_list, dim=0).to(torch.float32)  # 540,768
+                data['bp_features'] = ops.cat(bp_features_list, axis=0).to(ms.float32)  # 540,768
             elif self.args.use_self:
                 data = data
             else:

@@ -12,12 +12,6 @@ class MLP_block(nn.Cell):
         self.layer1 = nn.Dense(feature_dim, 256)
         self.layer2 = nn.Dense(256, 128)
         self.layer3 = nn.Dense(128, output_dim)
-        # # initial
-        # for m in self.modules():
-        #     if isinstance(m, nn.Dense):
-        #         nn.init.kaiming_normal_(m.weight)
-        #         if m.bias is not None:
-        #             nn.init.zeros_(m.bias)
 
         for _, cell in self.cells_and_names():
             if isinstance(cell, nn.Dense):

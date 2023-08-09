@@ -1,11 +1,8 @@
-import torch
 import numpy as np
-import os
-from os.path import join
 from pydoc import locate
 import sys
-import torch.nn as nn
-import torch.nn.functional as F
+import mindspore as ms
+import mindspore.ops as ops
 
 def import_class(name):
     return locate(name)
@@ -49,18 +46,18 @@ def cal_tiou(tIoU_results, tiou_thresholds):
     return tIoU_correct_per_thr
 
 def seg_pool_1d(video_fea_1, video_1_st, video_1_ed, fix_size):
-    video_fea_seg0 = F.interpolate(video_fea_1[:,:,:video_1_st], size=fix_size, mode='linear', align_corners=True)
-    video_fea_seg1 = F.interpolate(video_fea_1[:,:,video_1_st:video_1_ed], size=fix_size, mode='linear', align_corners=True)
-    video_fea_seg2 = F.interpolate(video_fea_1[:,:,video_1_ed:], size=fix_size, mode='linear', align_corners=True)
-    video_1_segs = torch.cat([video_fea_seg0, video_fea_seg1, video_fea_seg2], 2)
+    video_fea_seg0 = ops.interpolate(video_fea_1[:,:,:video_1_st], size=fix_size, mode='linear', align_corners=True)
+    video_fea_seg1 = ops.interpolate(video_fea_1[:,:,video_1_st:video_1_ed], size=fix_size, mode='linear', align_corners=True)
+    video_fea_seg2 = ops.interpolate(video_fea_1[:,:,video_1_ed:], size=fix_size, mode='linear', align_corners=True)
+    video_1_segs = ops.cat([video_fea_seg0, video_fea_seg1, video_fea_seg2], 2)
     return video_1_segs
 
 def seg_pool_3d(video_feamap_2, video_2_st, video_2_ed, fix_size):
     N, C, T, H, W = video_feamap_2.size()
-    video_feamap_seg0 = F.interpolate(video_feamap_2[:, :, :video_2_st, :, :], size=[fix_size, H, W], mode='trilinear', align_corners=True)
-    video_feamap_seg1 = F.interpolate(video_feamap_2[:, :, video_2_st:video_2_ed, :, :], size=[fix_size, H, W], mode='trilinear', align_corners=True)
-    video_feamap_seg2 = F.interpolate(video_feamap_2[:, :, video_2_ed:, :, :], size=[fix_size, H, W], mode='trilinear', align_corners=True)
-    video_2_segs_map = torch.cat([video_feamap_seg0, video_feamap_seg1, video_feamap_seg2], 2)
+    video_feamap_seg0 = ops.interpolate(video_feamap_2[:, :, :video_2_st, :, :], size=[fix_size, H, W], mode='trilinear', align_corners=True)
+    video_feamap_seg1 = ops.interpolate(video_feamap_2[:, :, video_2_st:video_2_ed, :, :], size=[fix_size, H, W], mode='trilinear', align_corners=True)
+    video_feamap_seg2 = ops.interpolate(video_feamap_2[:, :, video_2_ed:, :, :], size=[fix_size, H, W], mode='trilinear', align_corners=True)
+    video_2_segs_map = ops.cat([video_feamap_seg0, video_feamap_seg1, video_feamap_seg2], 2)
     return video_2_segs_map
 
 

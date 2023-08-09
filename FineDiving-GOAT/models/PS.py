@@ -1,8 +1,7 @@
-import torch.nn as nn
 from models.PS_parts import *
 
 
-class PSNet(nn.Module):
+class PSNet(nn.Cell):
     def __init__(self, n_channels=6):
         super(PSNet, self).__init__()
 
@@ -13,7 +12,7 @@ class PSNet(nn.Module):
         self.down4 = down(96, 96)
         self.tas = MLP_tas(64, 2)
 
-    def forward(self, x):
+    def construct(self, x):
         x1 = self.inc(x)
         x2 = self.down1(x1)
         x3 = self.down2(x2)

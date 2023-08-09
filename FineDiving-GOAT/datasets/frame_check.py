@@ -1,11 +1,6 @@
-import torch
-import numpy as np
 import os
 import pickle
-import random
 import glob
-from os.path import join
-from PIL import Image
 
 
 def read_pickle(pickle_path):

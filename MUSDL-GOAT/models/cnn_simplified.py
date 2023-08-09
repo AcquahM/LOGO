@@ -2,6 +2,7 @@ import numpy as np
 
 from utils import calc_pairwise_distance_3d
 
+import mindspore as ms
 import mindspore.nn as nn
 import mindspore.ops as ops
 
@@ -94,12 +95,12 @@ class GCNnet_artisticswimming_simplified(nn.Cell):
         # set modules
         self.gcn_list = nn.CellList([GCN_Module(args) for i in range(self.args.gcn_layers)])
 
-        # # initial
-        # for m in self.modules():
-        #     if isinstance(m, nn.Dense):
-        #         nn.init.kaiming_normal_(m.weight)
-        #         if m.bias is not None:
-        #             nn.init.zeros_(m.bias)
+        for _, cell in self.cells_and_names():
+            if isinstance(cell, nn.Dense):
+                cell.weight.set_data(ms.common.initializer.initializer(
+                    ms.common.initializer.HeNormal(), cell.weight.shape, cell.weight.dtype))
+                if cell.has_bias:
+                    cell.bias.set_data(ms.common.initializer.initializer("zeros", cell.bias.shape, cell.bias.dtype))
 
 
     def construct(self, boxes_features, boxes_in):
