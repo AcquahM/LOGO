@@ -4,8 +4,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-log_path = 'exp'
-file_name = 'USDL_full_split3_0.0003_Thu Oct 13 11_15_07 2022.log'
+log_path = 'exp1'
+file_name = 'USDL_full_split3_1e-05_Mon Aug 14 16 05 35 2023.log'
 state = 'test'
 best_ep = 153
 f_path = os.path.join(log_path, file_name)
@@ -22,6 +22,7 @@ sns.lineplot(data=s)
 title = state + ',' + file_name.split('_')[3]
 plt.title(title)
 plt.show()
+plt.savefig('curve.png')
 
 # calculate mean and std
 if state == 'test':

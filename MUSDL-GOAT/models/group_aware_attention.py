@@ -12,14 +12,14 @@ class Attention(nn.Cell):
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
         # QKV matrix
-        self.q_matrix = nn.Dense(linear_dim, linear_dim, bias=qkv_bias)
-        self.k_matrix = nn.Dense(linear_dim, linear_dim, bias=qkv_bias)
-        self.attn_drop = nn.Dropout(attn_drop)
+        self.q_matrix = nn.Dense(linear_dim, linear_dim, has_bias=qkv_bias)
+        self.k_matrix = nn.Dense(linear_dim, linear_dim, has_bias=qkv_bias)
+        self.attn_drop = nn.Dropout(p=attn_drop)
         self.bn = nn.BatchNorm1d(540, eps=1e-05, momentum=0.9, affine=True)
 
         self.relu = nn.ReLU()
         self.proj = nn.Dense(dim, dim)
-        self.proj_drop = nn.Dropout(proj_drop)
+        self.proj_drop = nn.Dropout(p=proj_drop)
 
         for _, cell in self.cells_and_names():
             if isinstance(cell, nn.Dense):
@@ -33,13 +33,13 @@ class Attention(nn.Cell):
         q = self.q_matrix(q_in).reshape(B, N, self.num_heads, self.linear_dim // self.num_heads).permute(0, 2, 1, 3)  # B,num_heads,N,C'
         k = self.k_matrix(k_in).reshape(B, N, self.num_heads, self.linear_dim // self.num_heads).permute(0, 2, 1, 3)  # B,num_heads,N,C'
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale  # B,num_heads,N,N
-        attn = attn.softmax(dim=-1)
+        attn = (q @ k.swapaxes(-2, -1)) * self.scale  # B,num_heads,N,N
+        attn = ops.softmax(attn)
         attn = self.attn_drop(attn)
 
         v = x.reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)  # B,num_heads,N,C'
         # x = (attn @ v).transpose(1, 2).reshape(B, N, C)  # B,N,C
-        x = x + (attn @ v).transpose(1, 2).reshape(B, N, C)  # B,N,C
+        x = x + (attn @ v).swapaxes(1, 2).reshape(B, N, C)  # B,N,C
         x = self.bn(x)
         x = self.proj(x)
         x = self.proj_drop(x)

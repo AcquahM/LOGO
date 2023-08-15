@@ -1,6 +1,6 @@
 import pickle
 import sys
-from thop import profile
+# from thop import profile
 
 sys.path.append('../')
 
@@ -66,19 +66,20 @@ def compute_loss(model_type, criterion, probs, data):
 
 def get_dataloaders(args):
     dataloaders = {}
+    boxes_dict = pickle.load(open(args.boxes_path, 'rb'))
     # dataloaders['test'] = torch.utils.data.DataLoader(VideoDataset('test', args),
     #                                                   batch_size=args.test_batch_size,
     #                                                   num_workers=args.num_workers,
     #                                                   shuffle=False,
     #                                                   pin_memory=True,
     #                                                   worker_init_fn=worker_init_fn)
-    dataloaders['test'] = ms.dataset.GeneratorDataset(VideoDataset('test', args),
+    dataloaders['test'] = ms.dataset.GeneratorDataset(VideoDataset('test', args, boxes_dict),
                                                       column_names=["data"],
                                                       num_parallel_workers=args.num_workers,
                                                       shuffle=False).batch(batch_size=args.test_batch_size)
 
     if args.use_multi_gpu:
-        dataloaders['train'] = build_dataloader(VideoDataset('train', args),
+        dataloaders['train'] = build_dataloader(VideoDataset('train', args, boxes_dict),
                                                 batch_size=args.train_batch_size,
                                                 shuffle=True,
                                                 num_workers=args.num_workers,
@@ -91,17 +92,17 @@ def get_dataloaders(args):
         #                                                    shuffle=False,
         #                                                    pin_memory=False,
         #                                                    worker_init_fn=worker_init_fn)
-        dataloaders['train'] = ms.dataset.GeneratorDataset(VideoDataset('train', args),
+        dataloaders['train'] = ms.dataset.GeneratorDataset(VideoDataset('train', args, boxes_dict),
                                                            column_names=["data"],
                                                            num_parallel_workers=args.num_workers,
                                                            shuffle=False).batch(batch_size=args.train_batch_size)
     return dataloaders
 
 
-def flops_params(model, model_name: str, input_size: tuple):
-    input = ops.randn(*input_size)
-    flops, params = profile(model, inputs=(input,))
-    print(f'[{model_name}]flops: ', flops, 'params: ', params)
+# def flops_params(model, model_name: str, input_size: tuple):
+#     input = ops.randn(*input_size)
+#     flops, params = profile(model, inputs=(input,))
+#     print(f'[{model_name}]flops: ', flops, 'params: ', params)
 
 
 def main(dataloaders, i3d, evaluator, base_logger, args):
@@ -119,37 +120,16 @@ def main(dataloaders, i3d, evaluator, base_logger, args):
     # Set loss function
     criterion = nn.KLDivLoss()
 
-    # # Set data position
-    # if torch.cuda.is_available():
-    #     device = get_device()
-    # else:
-    #     device = torch.device('cpu')
-    ms.set_context(device_target='GPU', device_id=0)
-
     # Set models and optimizer(depend on whether to use goat)
     if args.use_goat:
         if args.use_cnn_features:
             gcn = GCNnet_artisticswimming_simplified(args)
-
-            input1 = ops.randn(1, 540, 8, 1024)
-            input2 = ops.randn(1, 540, 8, 4)
-            flops, params = profile(gcn, inputs=(input1, input2))
-            print(f'[GCNnet_artisticswimming_simplified]flops: ', flops, 'params: ', params)
         else:
             gcn = GCNnet_artisticswimming(args)
             gcn.loadmodel(args.stage1_model_path)
         attn_encoder = Encoder_Blocks(args.qk_dim, 1024, args.linear_dim, args.num_heads, args.num_layers,
                                       args.attn_drop)
         linear_bp = Linear_For_Backbone(args)
-
-        input1 = ops.randn(1, 540, 1024)
-        input2 = ops.randn(1, 540, 1024)
-        input3 = ops.randn(1, 540, 1024)
-        flops, params = profile(attn_encoder, inputs=(input1, input2, input3))
-        print(f'[attn_encoder]flops: ', flops, 'params: ', params)
-
-        flops, params = profile(evaluator, inputs=(input1.mean(1),))
-        print(f'[evaluator]flops: ', flops, 'params: ', params)
 
         if args.use_multi_gpu:
             wrap_model(gcn, distributed=args.distributed)
@@ -253,7 +233,7 @@ def main(dataloaders, i3d, evaluator, base_logger, args):
             dataloaders['train'].sampler.set_epoch(epoch)
         if is_main_process():
             log_and_print(base_logger,
-                          f'Epoch: {epoch}  Current Best rho: {rho_best} at epoch {epoch_best}, Current Best RL2: {RL2_best}')
+                          f'Epoch: {epoch}  Current Best rho: {rho_best} at epoch {epoch_best}, Current Best RL2: {RL2_best * 100}')
 
         for split in ['train', 'test']:
             true_scores = []
@@ -279,42 +259,43 @@ def main(dataloaders, i3d, evaluator, base_logger, args):
             # visual
             attn_list = []
             key_list = []
+            loss_list = []
             if split == 'train' or (split == 'test' and is_main_process()):
+                start = time.time()
                 for data in dataloaders[split]:
                     data = data[0]
-                    if split == 'train' and args.train_batch_size == 1:
+                    key = data['key']
+                    if split == 'train' and (args.train_batch_size == 1 or data['final_score'].shape == ()):
                         data = {k: v.unsqueeze(0) for k, v in data.items() if k != 'key'}
-                    if split == 'test' and args.test_batch_size == 1:
+                    if split == 'test' and (args.test_batch_size == 1  or data['final_score'].shape == ()):
                         data = {k: v.unsqueeze(0) for k, v in data.items() if k != 'key'}
                     # print(data)
                     true_scores.extend(data['final_score'].numpy())
                     clip_feats = data['feature'] # B,540,1024
                     if split == 'train':
-                        start = time.time()
                         (loss, probs, attn), grads = grad_fn(clip_feats, data)
                         optimizer(grads)
-                        infer_time = time.time() - start
                     elif split == 'test':
-                        start = time.time()
                         loss, probs, attn = forward_fn(clip_feats, data)
-                        infer_time = time.time() - start
                         if args.use_goat:
                             attn_list.append(attn)
-                            key_list.append(data['key'])
+                            key_list.append(key)
+                    loss_list.append(loss.numpy())
                     preds = compute_score(args.type, probs, data)
                     pred_scores.extend(preds.numpy())
-
-                print("pred_scores: ", pred_scores)
-                print("true_scores: ", true_scores)
+                infer_time = time.time() - start
+                # print("pred_scores: ", pred_scores)
+                # print("true_scores: ", true_scores)
                 rho, p = stats.spearmanr(pred_scores, true_scores)
                 pred_scores = np.array(pred_scores)
                 true_scores = np.array(true_scores)
+                loss_avg = np.array(loss_list).mean()
                 RL2 = np.power((pred_scores - true_scores) / (true_scores.max() - true_scores.min()), 2).sum() / \
                       true_scores.shape[0]
 
                 if is_main_process():
                     log_and_print(base_logger,
-                                  f'epoch:{epoch}, {split} correlation: {rho}, Rl2: {RL2}, Infer_Time: {infer_time:.6f}')
+                                  f'epoch:{epoch}, {split} loss: {loss_avg}, correlation: {rho}, Rl2: {RL2 * 100}, Infer_Time: {infer_time:.6f}')
 
         if rho > rho_best and split == 'test' and is_main_process():
             if args.use_goat:
@@ -324,6 +305,12 @@ def main(dataloaders, i3d, evaluator, base_logger, args):
             epoch_best = epoch
             if is_main_process():
                 log_and_print(base_logger, '-----New best rho found!-----')
+            if rho > 0.4:
+                os.makedirs(f'ckpts/lr{args.lr}-wd{args.weight_decay}-bs{args.train_batch_size}/rho{rho:.4f}-rl2{RL2 * 100:.4f}', exist_ok=True)
+                ms.save_checkpoint(gcn, f'ckpts/lr{args.lr}-wd{args.weight_decay}-bs{args.train_batch_size}/rho{rho:.4f}-rl2{RL2 * 100:.4f}/gcn.ckpt')
+                ms.save_checkpoint(attn_encoder, f'ckpts/lr{args.lr}-wd{args.weight_decay}-bs{args.train_batch_size}/rho{rho:.4f}-rl2{RL2 * 100:.4f}/attn_encoder.ckpt')
+                ms.save_checkpoint(linear_bp, f'ckpts/lr{args.lr}-wd{args.weight_decay}-bs{args.train_batch_size}/rho{rho:.4f}-rl2{RL2 * 100:.4f}/linear_bp.ckpt')
+                ms.save_checkpoint(evaluator, f'ckpts/lr{args.lr}-wd{args.weight_decay}-bs{args.train_batch_size}/rho{rho:.4f}-rl2{RL2 * 100:.4f}/evaluator.ckpt')
             if args.save:
                 ms.save_checkpoint({'epoch': epoch,
                             # 'i3d': i3d.state_dict(),
@@ -346,8 +333,8 @@ if __name__ == '__main__':
 
     args = get_parser()
 
-    if not os.path.exists('./exp'):
-        os.mkdir('./exp')
+    if not os.path.exists('exp1'):
+        os.mkdir('exp1')
     if not os.path.exists('./ckpts'):
         os.mkdir('./ckpts')
 
@@ -356,12 +343,14 @@ if __name__ == '__main__':
     else:
         args.distributed = True
 
+    ms.set_context(device_target='GPU', device_id=0)
+
     setup_env(args.launcher, distributed=args.distributed)
 
     init_seed(args)
 
     localtime = time.asctime(time.localtime(time.time()))
-    base_logger = get_logger(f'exp/{args.type}_full_split{args.split}_{args.lr}_{localtime}.log', args.log_info)
+    base_logger = get_logger(f'exp1/{args.type}_full_split{args.split}_{args.lr}_{localtime}.log', args.log_info)
     i3d, evaluator = get_models(args)
     dataloaders = get_dataloaders(args)
 

@@ -12,12 +12,12 @@ from torchvideotransforms import video_transforms, volume_transforms
 
 
 def convert_tensor(x):
-    return x.numpy()
+    return x.float().numpy()
 
 
 class VideoDataset():
 
-    def __init__(self, mode, args):
+    def __init__(self, mode, args, boxes_dict):
         super(VideoDataset, self).__init__()
 
         # train or test
@@ -32,12 +32,23 @@ class VideoDataset():
             args.feature_path = args.bpbb_feature_path
         self.args = args
         self.annotations = pkl.load(open(args.anno_path, 'rb'))
-        self.keys = pkl.load(open(f'/mnt/f/University/2023Summer/LOGO/Dataset/{self.mode}_split{args.split}.pkl', 'rb'))
+        keys = pkl.load(open(f'/mnt/f/University/2023Summer/LOGO/Dataset/{self.mode}_split{args.split}.pkl', 'rb'))
         self.feature_dict = pkl.load(open(args.feature_path, 'rb'))
-        # self.boxes_dict = pkl.load(open(args.boxes_path, 'rb'))
-        # self.cnn_feature_dict = pkl.load(open(args.cnn_feature_path, 'rb'))
+        self.boxes_dict = boxes_dict
+        self.cnn_feature_dict = pkl.load(open(args.cnn_feature_path, 'rb'))
         self.formation_features_dict = pkl.load(open(args.formation_feature_path, 'rb'))
         self.bp_feature_path = args.bp_feature_path
+
+        self.keys = []
+
+        for key in keys:
+            try:
+                self.boxes_dict[(key[0], str(key[1]), '0000')]
+            except KeyError:
+                pass
+            else:
+                self.keys.append(key)
+
         print(f'len of {self.mode}:', len(self.keys))
 
         # parameters of videos
@@ -70,7 +81,7 @@ class VideoDataset():
         if len(image_list) >= length:
             start_frame = int(image_list[0].split("/")[-1][:-4])
             end_frame = int(image_list[-1].split("/")[-1][:-4])
-            frame_list = np.linspace(start_frame, end_frame, length).astype(np.int)
+            frame_list = np.linspace(start_frame, end_frame, length).astype(np.int64)
             image_frame_idx = [frame_list[i] - start_frame for i in range(length)]
             video = [Image.open(image_list[image_frame_idx[i]]) for i in range(length)]
             return convert_tensor(transforms(video).transpose(0, 1)), image_frame_idx
@@ -78,7 +89,7 @@ class VideoDataset():
             T = len(image_list)
             img_idx_list = np.arange(T)
             img_idx_list = img_idx_list.repeat(2)
-            idx_list = np.linspace(0, T * 2 - 1, length).astype(np.int)
+            idx_list = np.linspace(0, T * 2 - 1, length).astype(np.int64)
             image_frame_idx = [img_idx_list[idx_list[i]] for i in range(length)]
 
             video = [Image.open(image_list[image_frame_idx[i]]) for i in range(length)]
@@ -90,14 +101,14 @@ class VideoDataset():
         if len(image_list) >= length:
             start_frame = int(image_list[0].split("/")[-1][:-4])
             end_frame = int(image_list[-1].split("/")[-1][:-4])
-            frame_list = np.linspace(start_frame, end_frame, length).astype(np.int)
+            frame_list = np.linspace(start_frame, end_frame, length).astype(np.int64)
             image_frame_idx = [frame_list[i] - start_frame for i in range(length)]
             return image_frame_idx
         else:
             T = len(image_list)
             img_idx_list = np.arange(T)
             img_idx_list = img_idx_list.repeat(2)
-            idx_list = np.linspace(0, T * 2 - 1, length).astype(np.int)
+            idx_list = np.linspace(0, T * 2 - 1, length).astype(np.int64)
             image_frame_idx = [img_idx_list[idx_list[i]] for i in range(length)]
             return image_frame_idx
 
@@ -113,7 +124,7 @@ class VideoDataset():
                 if item == 'person':
                     person_idx_list.append(i)
             tmp_bbox = []
-            tmp_x1, tmp_y1, tmp_x2, tmp_y2 = 0, 0, 0, 0
+            tmp_x1, tmp_y1, tmp_x2, tmp_y2 = 0., 0., 0., 0.
             for idx, person_idx in enumerate(person_idx_list):
                 if idx < N:
                     box = self.boxes_dict[key_bbox]['boxes'][person_idx]
@@ -124,14 +135,14 @@ class VideoDataset():
                     w = w * W
                     h = h * H
                     tmp_x1, tmp_y1, tmp_x2, tmp_y2 = x, y, x + w, y + h
-                    tmp_bbox.append(ms.tensor([x, y, x + w, y + h]).unsqueeze(0))  # 1,4 x1,y1,x2,y2
+                    tmp_bbox.append(np.array([[x, y, x + w, y + h]]))  # 1,4 x1,y1,x2,y2
             if len(person_idx_list) < N:
                 step = len(person_idx_list)
                 while step < N:
-                    tmp_bbox.append(ms.tensor([tmp_x1, tmp_y1, tmp_x2, tmp_y2]).unsqueeze(0))  # 1,4
+                    tmp_bbox.append(np.array([[tmp_x1, tmp_y1, tmp_x2, tmp_y2]]))  # 1,4
                     step += 1
-            boxes.append(ms.ops.cat(tmp_bbox).unsqueeze(0))  # 1,N,4
-        boxes_tensor = ms.ops.cat(boxes)
+            boxes.append(np.concatenate(tmp_bbox, axis=0)[np.newaxis, :])  # 1,N,4
+        boxes_tensor = np.concatenate(boxes, axis=0)
         return boxes_tensor
 
     def random_select_frames(self, video, image_frame_idx):
@@ -208,7 +219,7 @@ class VideoDataset():
                         selected_frames_idx = self.random_select_idx(image_frame_idx)
                     else:
                         selected_frames_idx = self.select_middle_idx(image_frame_idx)
-                    data['boxes'] = convert_tensor(self.load_boxes(key, selected_frames_idx, self.out_size))  # 540*t,N,4
+                    data['boxes'] = self.load_boxes(key, selected_frames_idx, self.out_size)  # 540*t,N,4
                     data['cnn_features'] = convert_tensor(self.cnn_feature_dict[key].squeeze(0))
                 else:
                     frames_path = os.path.join(self.data_path, key[0], str(key[1]))
@@ -217,7 +228,7 @@ class VideoDataset():
                         selected_frames, selected_frames_idx = self.random_select_frames(video, image_frame_idx)
                     else:
                         selected_frames, selected_frames_idx = self.select_middle_frames(video, image_frame_idx)
-                    data['boxes'] = convert_tensor(self.load_boxes(key, selected_frames_idx, self.out_size))  # 540*t,N,4
+                    data['boxes'] = self.load_boxes(key, selected_frames_idx, self.out_size)  # 540*t,N,4
                     data['video'] = selected_frames  # 540*t,C,H,W
         return data
 

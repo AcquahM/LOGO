@@ -130,10 +130,10 @@ def calc_pairwise_distance_3d(X, Y):
     """
     B = X.shape[0]
 
-    rx = X.pow(2).sum(dim=2).reshape((B, -1, 1))
-    ry = Y.pow(2).sum(dim=2).reshape((B, -1, 1))
+    rx = X.pow(2).sum(axis=2).reshape((B, -1, 1))
+    ry = Y.pow(2).sum(axis=2).reshape((B, -1, 1))
 
-    dist = rx - 2.0 * X.matmul(Y.transpose(1, 2)) + ry.transpose(1, 2)
+    dist = rx - 2.0 * X.matmul(Y.swapaxes(1, 2)) + ry.swapaxes(1, 2)
 
     return ops.sqrt(dist)
 
@@ -161,7 +161,7 @@ def log_best(rho_best, RL2_best, epoch_best, args):
         else:
             backbone = 'BP_BB'
 
-        log_list = [format(rho_best, '.4f'), epoch_best, args.use_goat, args.lr, args.weight_decay ,args.num_epochs, args.warmup,
+        log_list = [format(rho_best, '.4f'), epoch_best, args.use_goat, args.lr, args.weight_decay, args.num_epochs, args.warmup,
                     args.seed, args.train_backbone, args.num_selected_frames, args.num_heads,
-                    args.num_layers, args.random_select_frames, args.train_batch_size, args.test_batch_size, args.linear_dim, RL2_best, mode, backbone]
+                    args.num_layers, args.random_select_frames, args.train_batch_size, args.test_batch_size, args.linear_dim, args.attn_drop, RL2_best, mode, backbone]
         writer.writerow(log_list)
