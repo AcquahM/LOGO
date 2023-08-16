@@ -15,7 +15,7 @@ def convert_tensor(x):
     return x.numpy()
 
 class MTLPair_Dataset():
-    def __init__(self, args, subset, transform):
+    def __init__(self, args, subset, transform, boxes_dict):
         random.seed(args.seed)
         if args.use_i3d_bb:
             args.feature_path = args.i3d_feature_path
@@ -37,10 +37,10 @@ class MTLPair_Dataset():
         self.split = self.read_pickle(self.split_path)
         self.label_dict = self.read_pickle(self.label_path)
         self.feature_dict = self.read_pickle(self.feature_path)
-        # self.cnn_feature_dict = self.read_pickle(self.cnn_feature_path)
+        self.cnn_feature_dict = self.read_pickle(self.cnn_feature_path)
         self.formation_features_dict = pkl.load(open(args.formation_feature_path, 'rb'))
         self.bp_feature_path = args.bp_feature_path
-        # self.boxes_dict = pkl.load(open(args.boxes_path, 'rb'))
+        self.boxes_dict = boxes_dict
         self.data_root = args.data_root
         # setting
         self.temporal_shift = [args.temporal_shift_min, args.temporal_shift_max]
@@ -70,10 +70,26 @@ class MTLPair_Dataset():
         #     self.check()
 
         self.choose_list = self.split.copy()
-        if self.subset == 'test':
-            self.dataset = self.split_test
+        # if self.subset == 'test':
+        #     self.dataset = self.split_test
+        # else:
+        #     self.dataset = self.split
+
+        # train or test
+        if self.subset == 'train':
+            keys = self.split
         else:
-            self.dataset = self.split
+            keys = self.split_test
+
+        self.dataset = []
+
+        for key in keys:
+            try:
+                self.boxes_dict[(key[0], str(key[1]), '0000')]
+            except KeyError:
+                pass
+            else:
+                self.dataset.append(key)
 
     def load_video(self, frames_path):
         length = self.length
@@ -82,7 +98,7 @@ class MTLPair_Dataset():
         if len(image_list) >= length:
             start_frame = int(image_list[0].split("/")[-1][:-4])
             end_frame = int(image_list[-1].split("/")[-1][:-4])
-            frame_list = np.linspace(start_frame, end_frame, length).astype(np.int)
+            frame_list = np.linspace(start_frame, end_frame, length).astype(np.int64)
             image_frame_idx = [frame_list[i] - start_frame for i in range(length)]
             video = [Image.open(image_list[image_frame_idx[i]]) for i in range(length)]
             return transforms(video).transpose(0, 1).numpy(), image_frame_idx
@@ -90,7 +106,7 @@ class MTLPair_Dataset():
             T = len(image_list)
             img_idx_list = np.arange(T)
             img_idx_list = img_idx_list.repeat(2)
-            idx_list = np.linspace(0, T * 2 - 1, length).astype(np.int)
+            idx_list = np.linspace(0, T * 2 - 1, length).astype(np.int64)
             image_frame_idx = [img_idx_list[idx_list[i]] for i in range(length)]
 
             video = [Image.open(image_list[image_frame_idx[i]]) for i in range(length)]
@@ -102,14 +118,14 @@ class MTLPair_Dataset():
         if len(image_list) >= length:
             start_frame = int(image_list[0].split("/")[-1][:-4])
             end_frame = int(image_list[-1].split("/")[-1][:-4])
-            frame_list = np.linspace(start_frame, end_frame, length).astype(np.int)
+            frame_list = np.linspace(start_frame, end_frame, length).astype(np.int64)
             image_frame_idx = [frame_list[i] - start_frame for i in range(length)]
             return image_frame_idx
         else:
             T = len(image_list)
             img_idx_list = np.arange(T)
             img_idx_list = img_idx_list.repeat(2)
-            idx_list = np.linspace(0, T * 2 - 1, length).astype(np.int)
+            idx_list = np.linspace(0, T * 2 - 1, length).astype(np.int64)
             image_frame_idx = [img_idx_list[idx_list[i]] for i in range(length)]
             return image_frame_idx
 
@@ -130,7 +146,7 @@ class MTLPair_Dataset():
                 if item == 'person':
                     person_idx_list.append(i)
             tmp_bbox = []
-            tmp_x1, tmp_y1, tmp_x2, tmp_y2 = 0, 0, 0, 0
+            tmp_x1, tmp_y1, tmp_x2, tmp_y2 = 0., 0., 0., 0.
             for idx, person_idx in enumerate(person_idx_list):
                 if idx < N:
                     box = self.boxes_dict[key_bbox]['boxes'][person_idx]
@@ -141,18 +157,22 @@ class MTLPair_Dataset():
                     w = w * W
                     h = h * H
                     tmp_x1, tmp_y1, tmp_x2, tmp_y2 = x, y, x + w, y + h
-                    tmp_bbox.append(ms.tensor([x, y, x + w, y + h]).unsqueeze(0))  # 1,4 x1,y1,x2,y2
+                    tmp_bbox.append(np.array([[x, y, x + w, y + h]]))  # 1,4 x1,y1,x2,y2
             if len(person_idx_list) < N:
                 step = len(person_idx_list)
                 while step < N:
-                    tmp_bbox.append(ms.tensor([tmp_x1, tmp_y1, tmp_x2, tmp_y2]).unsqueeze(0))  # 1,4
+                    tmp_bbox.append(np.array([[tmp_x1, tmp_y1, tmp_x2, tmp_y2]]))  # 1,4
                     step += 1
-            boxes.append(ops.cat(tmp_bbox).unsqueeze(0))  # 1,N,4
-        boxes_tensor = ops.cat(boxes)
-        return boxes_tensor.numpy()
+            boxes.append(np.concatenate(tmp_bbox, axis=0)[np.newaxis, :])  # 1,N,4
+        boxes_tensor = np.concatenate(boxes, axis=0)
+        return boxes_tensor
 
     def preprocess(self):
         for item in self.split:
+            try:
+                self.boxes_dict[(item[0], str(item[1]), '0000')]
+            except KeyError:
+                continue
             difficulty = self.label_dict.get(item)[0]
             if self.difficulties_dict.get(difficulty) is None:
                 self.difficulties_dict[difficulty] = []
@@ -160,6 +180,10 @@ class MTLPair_Dataset():
 
         if self.subset == 'test':
             for item in self.split_test:
+                try:
+                    self.boxes_dict[(item[0], str(item[1]), '0000')]
+                except KeyError:
+                    continue
                 difficulty = self.label_dict.get(item)[0]
                 if self.difficulties_dict_test.get(difficulty) is None:
                     self.difficulties_dict_test[difficulty] = []

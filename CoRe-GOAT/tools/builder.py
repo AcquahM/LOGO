@@ -1,4 +1,6 @@
 import os, sys
+import pickle
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.join(BASE_DIR, "../"))
@@ -36,8 +38,9 @@ def dataset_builder(args):
     try:
         train_trans, test_trans = get_video_trans()
         Dataset = import_class("datasets." + args.benchmark)
-        train_dataset = Dataset(args, transform=train_trans, subset='train')
-        test_dataset = Dataset(args, transform=test_trans, subset='test')
+        boxes_dict = pickle.load(open(args.boxes_path, 'rb'))
+        train_dataset = Dataset(args, transform=train_trans, subset='train', boxes_dict=boxes_dict)
+        test_dataset = Dataset(args, transform=test_trans, subset='test', boxes_dict=boxes_dict)
         return train_dataset, test_dataset
     except Exception as e:
         traceback.print_exc()
