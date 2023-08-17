@@ -227,7 +227,7 @@ class I3D(nn.Cell):
 
         # self.avg_pool = torch.nn.AvgPool3d((2, 7, 7), (1, 1, 1))
         self.avg_pool = nn.AvgPool3d((2, 4, 4), (1, 1, 1))
-        self.dropout = nn.Dropout(dropout_prob)
+        self.dropout = nn.Dropout(p=dropout_prob)
         self.conv3d_0c_1x1 = Unit3Dpy(
             in_channels=1024,
             out_channels=self.num_classes,

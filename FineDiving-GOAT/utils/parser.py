@@ -21,11 +21,11 @@ def get_args():
     parser.add_argument('--prob_tas_threshold', type=float, help='prob_tas_threshold', default=0.25)
 
     # basic
-    parser.add_argument('--max_epoch', type=int, help='number of training epochs', default=200)
+    parser.add_argument('--max_epoch', type=int, help='number of training epochs', default=50)
     parser.add_argument('--bs_train', type=int, help='batch size for training phase', default=1)
     parser.add_argument('--bs_test', type=int, help='batch size for test phase', default=1)
     parser.add_argument('--seed', type=int, help='manual seed', default=42)
-    parser.add_argument('--workers', type=int, help='number of subprocesses for dataloader', default=24)
+    parser.add_argument('--workers', type=int, help='number of subprocesses for dataloader', default=1)
     parser.add_argument('--lr', type=float, help='learning rate', default=3e-4)
     parser.add_argument('--lr_factor', type=float, help='learning rate factor', default=0.01)
     parser.add_argument('--weight_decay', type=float, help='L2 weight decay', default=1e-5)
@@ -43,21 +43,21 @@ def get_args():
     parser.add_argument('--num_selected_frames', type=int, help='number of selected frames per 16 frames', default=1)
 
     # path
-    parser.add_argument('--data_root', type=str, help='root of dataset', default='/mnt/petrelfs/daiwenxun/AS-AQA/Video_result')
-    parser.add_argument('--label_path', type=str, help='path of annotation file', default='/mnt/petrelfs/daiwenxun/AS-AQA/Exp/AS-AQA/Anno_result/anno_dict.pkl')
-    parser.add_argument('--boxes_path', type=str, help='path of boxes annotation file', default='/mnt/petrelfs/daiwenxun/AS-AQA/Exp/DINO/ob_result_new.pkl')
+    parser.add_argument('--data_root', type=str, help='root of dataset', default='/mnt/f/University/2023Summer/LOGO/Dataset/Video_result')
+    parser.add_argument('--label_path', type=str, help='path of annotation file', default='/mnt/f/University/2023Summer/LOGO/Dataset/anno_dict.pkl')
+    parser.add_argument('--boxes_path', type=str, help='path of boxes annotation file', default='/mnt/f/University/2023Summer/LOGO/Dataset/ob_result_new.pkl')
     # backbone features path
-    parser.add_argument('--i3d_feature_path', type=str, help='path of i3d feature dict', default='/mnt/petrelfs/daiwenxun/AS-AQA/Exp/AS-AQA/video_feature_dict.pkl')
-    parser.add_argument('--swin_feature_path', type=str, help='path of swin feature dict', default='/mnt/petrelfs/daiwenxun/AS-AQA/Exp/video-swin-features/swin_features_dict_new.pkl')
+    parser.add_argument('--i3d_feature_path', type=str, help='path of i3d feature dict', default='/mnt/f/University/2023Summer/LOGO/Dataset/video_feature_dict.pkl')
+    parser.add_argument('--swin_feature_path', type=str, help='path of swin feature dict', default='/mnt/f/University/2023Summer/LOGO/Dataset/swin_features_dict_new.pkl')
     parser.add_argument('--bpbb_feature_path', type=str, help='path of bridge-prompt feature dict', default='/mnt/petrelfs/daiwenxun/AS-AQA/Exp/AS-AQA/bpbb_features_540.pkl')
     # attention features path
-    parser.add_argument('--feamap_root', type=str, help='path of feature dict', default='/mnt/petrelfs/daiwenxun/AS-AQA/Exp/AS-AQA/video_feamap_dict.pkl')
-    parser.add_argument('--train_split', type=str, help='', default='/mnt/petrelfs/daiwenxun/AS-AQA/Exp/AS-AQA/Anno_result/train_split3.pkl')
-    parser.add_argument('--test_split', type=str, help='', default='/mnt/petrelfs/daiwenxun/AS-AQA/Exp/AS-AQA/Anno_result/test_split3.pkl')
-    parser.add_argument('--cnn_feature_path', type=str, help='path of cnn feature dict', default='/mnt/petrelfs/daiwenxun/AS-AQA/Exp/Inceptionv3/inception_feature_dict.pkl')
+    parser.add_argument('--feamap_root', type=str, help='path of feature dict', default='/mnt/f/University/2023Summer/LOGO/Dataset/video_feamap_dict.pkl')
+    parser.add_argument('--train_split', type=str, help='', default='/mnt/f/University/2023Summer/LOGO/Dataset/train_split3.pkl')
+    parser.add_argument('--test_split', type=str, help='', default='/mnt/f/University/2023Summer/LOGO/Dataset/test_split3.pkl')
+    parser.add_argument('--cnn_feature_path', type=str, help='path of cnn feature dict', default='/mnt/f/University/2023Summer/LOGO/Dataset/inception_feature_dict.pkl')
     parser.add_argument('--stage1_model_path', type=str, default='/mnt/petrelfs/daiwenxun/AS-AQA/Exp/Group-AQA-Distributed/ckpts/STAGE1_256frames_rho0.3257707338254451_(224, 224)_(25, 25)_loss82.48323059082031.pth', help='stage1_model_path')
     parser.add_argument('--bp_feature_path', type=str, default='/mnt/petrelfs/daiwenxun/AS-AQA/Exp/AS-AQA/bp_features', help='bridge prompt feature path')
-    parser.add_argument('--formation_feature_path', type=str, default='/mnt/petrelfs/daiwenxun/AS-AQA/Exp/AS-AQA/formation_features_middle_1.pkl', help='formation feature path')
+    parser.add_argument('--formation_feature_path', type=str, default='/mnt/f/University/2023Summer/LOGO/Dataset/formation_features_middle_1.pkl', help='formation feature path')
 
     # [BOOL]
     # bool for attention mode[GOAT / BP / FORMATION / SELF]
@@ -72,15 +72,15 @@ def get_args():
     # others
     parser.add_argument('--train_backbone', type=int, help='whether to train backbone', default=0)
     parser.add_argument('--use_gcn', type=int, help='whether to use gcn', default=1)
-    parser.add_argument('--warmup', type=int, help='whether to warm up', default=1)
-    parser.add_argument('--random_select_frames', type=int, help='whether to select frames randomly', default=1)
-    parser.add_argument('--use_multi_gpu', type=int, help='whether to use multi gpus', default=1)
+    parser.add_argument('--warmup', type=int, help='whether to warm up', default=0)
+    parser.add_argument('--random_select_frames', type=int, help='whether to select frames randomly', default=0)
+    parser.add_argument('--use_multi_gpu', type=int, help='whether to use multi gpus', default=0)
     parser.add_argument('--gcn_temporal_fuse', type=int, help='whether to fuse temporal node before gcn', default=0)
     parser.add_argument('--use_cnn_features', type=int, help='whether to use pretrained cnn features', default=1)
 
     # log
     parser.add_argument('--exp_name', type=str, default='goat', help='experiment name')
-    parser.add_argument('--result_path', type=str, default='result/result_new.csv', help='result log path')
+    parser.add_argument('--result_path', type=str, default='result/result.csv', help='result log path')
 
     # attention
     parser.add_argument('--num_heads', type=int, default=8, help='number of self-attention heads')
@@ -96,7 +96,7 @@ def get_args():
     parser.add_argument('--num_graph', type=int, default=16, help='number of graphs')
     parser.add_argument('--gcn_layers', type=int, default=1, help='number of gcn layers')
     parser.add_argument('--pos_threshold', type=float, default=0.2, help='threshold for distance mask')
-    parser.add_argument('--launcher', choices=['none', 'pytorch', 'slurm'], default='slurm', help='job launcher')
+    parser.add_argument('--launcher', choices=['none', 'pytorch', 'slurm'], default='none', help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--random_choosing', type=int, help=' ', default=0)
     parser.add_argument('--action_number_choosing', type=int, help=' ', default=1)

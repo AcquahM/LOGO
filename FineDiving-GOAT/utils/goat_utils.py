@@ -89,10 +89,10 @@ def calc_pairwise_distance_3d(X, Y):
     """
     B = X.shape[0]
 
-    rx = X.pow(2).sum(dim=2).reshape((B, -1, 1))
-    ry = Y.pow(2).sum(dim=2).reshape((B, -1, 1))
+    rx = X.pow(2).sum(axis=2).reshape((B, -1, 1))
+    ry = Y.pow(2).sum(axis=2).reshape((B, -1, 1))
 
-    dist = rx - 2.0 * X.matmul(Y.transpose(1, 2)) + ry.transpose(1, 2)
+    dist = rx - 2.0 * X.matmul(Y.swapaxes(1, 2)) + ry.swapaxes(1, 2)
 
     return ms.ops.sqrt(dist)
 

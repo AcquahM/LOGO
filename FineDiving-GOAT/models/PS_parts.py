@@ -5,10 +5,10 @@ class double_conv(nn.Cell):
     def __init__(self, in_ch, out_ch):
         super(double_conv, self).__init__()
         self.conv = nn.SequentialCell(
-            nn.Conv1d(in_ch, out_ch, 3, padding=1),
+            nn.Conv1d(in_ch, out_ch, 3, padding=1, pad_mode='pad', has_bias=True),
             nn.BatchNorm1d(out_ch),
             nn.ReLU(),
-            nn.Conv1d(out_ch, out_ch, 3, padding=1),
+            nn.Conv1d(out_ch, out_ch, 3, padding=1, pad_mode='pad', has_bias=True),
             nn.BatchNorm1d(out_ch),
             nn.ReLU()
         )
@@ -32,7 +32,7 @@ class down(nn.Cell):
     def __init__(self, in_ch, out_ch):
         super(down, self).__init__()
         self.mpconv = nn.SequentialCell(
-            nn.MaxPool1d(2),
+            nn.MaxPool1d(2, stride=2, pad_mode='pad'),
             double_conv(in_ch, out_ch)
         )
 

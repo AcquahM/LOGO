@@ -18,7 +18,7 @@ class GCN_Module(nn.Cell):
         # set modules
         self.fc_rn_theta_list = nn.CellList([nn.Dense(NFG, NFR) for i in range(NG)])
         self.fc_rn_phi_list = nn.CellList([nn.Dense(NFG, NFR) for i in range(NG)])
-        self.fc_gcn_list = nn.CellList([nn.Dense(NFG, NFG_ONE, bias=False) for i in range(NG)])
+        self.fc_gcn_list = nn.CellList([nn.Dense(NFG, NFG_ONE, has_bias=False) for i in range(NG)])
         self.nl_gcn_list = nn.CellList([nn.LayerNorm([NFG_ONE]) for i in range(NG)])
 
     def construct(self, graph_boxes_features, boxes_in_flat):
@@ -50,7 +50,7 @@ class GCN_Module(nn.Cell):
             # calculate similarity
             graph_boxes_features_theta = self.fc_rn_theta_list[i](graph_boxes_features)  # B*T,N,NFR
             graph_boxes_features_phi = self.fc_rn_phi_list[i](graph_boxes_features)  # B*T,N,NFR
-            similarity_relation_graph = ops.matmul(graph_boxes_features_theta, graph_boxes_features_phi.transpose(1, 2))  # B*T,N,N
+            similarity_relation_graph = ops.matmul(graph_boxes_features_theta, graph_boxes_features_phi.swapaxes(1, 2))  # B*T,N,N
             similarity_relation_graph = similarity_relation_graph / np.sqrt(NFR)
             similarity_relation_graph = similarity_relation_graph.reshape(-1, 1)  # B*T*N*N, 1
 

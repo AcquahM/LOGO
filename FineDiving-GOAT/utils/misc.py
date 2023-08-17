@@ -53,7 +53,7 @@ def seg_pool_1d(video_fea_1, video_1_st, video_1_ed, fix_size):
     return video_1_segs
 
 def seg_pool_3d(video_feamap_2, video_2_st, video_2_ed, fix_size):
-    N, C, T, H, W = video_feamap_2.size()
+    N, C, T, H, W = video_feamap_2.shape
     video_feamap_seg0 = ops.interpolate(video_feamap_2[:, :, :video_2_st, :, :], size=[fix_size, H, W], mode='trilinear', align_corners=True)
     video_feamap_seg1 = ops.interpolate(video_feamap_2[:, :, video_2_st:video_2_ed, :, :], size=[fix_size, H, W], mode='trilinear', align_corners=True)
     video_feamap_seg2 = ops.interpolate(video_feamap_2[:, :, video_2_ed:, :, :], size=[fix_size, H, W], mode='trilinear', align_corners=True)

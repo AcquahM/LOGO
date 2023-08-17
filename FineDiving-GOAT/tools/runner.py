@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 
 from scipy import stats
@@ -18,9 +20,8 @@ import mindspore.nn as nn
 import mindspore.ops as ops
 from utils.misc import segment_iou, cal_tiou, seg_pool_1d, seg_pool_3d
 
-def train_net(args):
-    if is_main_process():
-        print('Trainer start ... ')
+
+def train_net(args, logger):
     # build dataset
     train_dataset, test_dataset = builder.dataset_builder(args)
     if args.use_multi_gpu:
@@ -49,21 +50,21 @@ def train_net(args):
     #     device = get_device()
     # else:
     #     device = torch.device('cpu')
-    ms.set_context(device_target='GPU', device_id=0)
+
 
     # build model
     base_model, psnet_model, decoder, regressor_delta = builder.model_builder(args)
 
-    input1 = ops.randn(2, 9, 1024)
-    input2 = ops.randn(1, 15, 64)
-    input3 = ops.randn(1, 15, 64)
-    input4 = ops.randn(1, 15, 64)
-    flops, params = profile(psnet_model, inputs=(input1, ))
-    print(f'[psnet_model]flops: ', flops, 'params: ', params)
-    flops, params = profile(decoder, inputs=(input2, input3))
-    print(f'[decoder]flops: ', flops, 'params: ', params)
-    flops, params = profile(regressor_delta, inputs=(input4, ))
-    print(f'[regressor_delta]flops: ', flops, 'params: ', params)
+    # input1 = ops.randn(2, 9, 1024)
+    # input2 = ops.randn(1, 15, 64)
+    # input3 = ops.randn(1, 15, 64)
+    # input4 = ops.randn(1, 15, 64)
+    # flops, params = profile(psnet_model, inputs=(input1, ))
+    # print(f'[psnet_model]flops: ', flops, 'params: ', params)
+    # flops, params = profile(decoder, inputs=(input2, input3))
+    # print(f'[decoder]flops: ', flops, 'params: ', params)
+    # flops, params = profile(regressor_delta, inputs=(input4, ))
+    # print(f'[regressor_delta]flops: ', flops, 'params: ', params)
 
     # Set models and optimizer(depend on whether to use goat)
     if args.use_goat:
@@ -151,7 +152,8 @@ def train_net(args):
     bce = nn.BCELoss()
     trainer = Trainer(base_model, psnet_model, decoder, regressor_delta, mse, optimizer, args, bce, gcn, attn_encoder, linear_bp)
 
-
+    if is_main_process():
+        print('Trainer start ... ')
     # training phase
     for epoch in range(start_epoch, args.max_epoch):
         if args.use_multi_gpu:
@@ -166,7 +168,7 @@ def train_net(args):
         # if args.fix_bn:
         #     base_model.apply(misc.fix_bn)
         for idx, (data, target) in enumerate(train_dataloader):
-            if args.bs_train == 1:
+            if args.bs_train == 1 or data['final_score'].shape == ():
                 data = {k: v.unsqueeze(0) for k, v in data.items() if k != 'key'}
                 target = {k: v.unsqueeze(0) for k, v in target.items() if k != 'key'}
             # num_iter += 1
@@ -199,8 +201,9 @@ def train_net(args):
 
             batch_idx = idx + 1
             if batch_idx % args.print_freq == 0:
-                print('[Training][%d/%d][%d/%d] \t Batch_time: %.2f \t Batch_loss: %.4f \t '
-                      % (epoch, args.max_epoch, batch_idx, len(train_dataloader), batch_time, loss.item()))
+                msg = '[Training][%d/%d][%d/%d] \t Batch_time: %.2f \t Batch_loss: %.4f \t '% (epoch, args.max_epoch, batch_idx, len(train_dataloader), batch_time, loss.item())
+                print(msg)
+                logger.info(msg)
             true_scores.extend(data['final_score'].numpy())
 
         # evaluation results
@@ -214,18 +217,25 @@ def train_net(args):
         pred_tious_mean_75 = sum(pred_tious_75) / len(train_dataset)
 
         if is_main_process():
-            print('[Training] EPOCH: %d, tIoU_5: %.4f, tIoU_75: %.4f'
-                  % (epoch, pred_tious_mean_5, pred_tious_mean_75))
-            print(
-                '[Training] EPOCH: %d, correlation: %.4f, L2: %.4f, RL2: %.4f' % (epoch, rho, L2, RL2))
+            msg = '[Training] EPOCH: %d, tIoU_5: %.4f, tIoU_75: %.4f' % (epoch, pred_tious_mean_5, pred_tious_mean_75)
+            print(msg)
+            logger.info(msg)
+
+            msg = '[Training] EPOCH: %d, correlation: %.4f, L2: %.4f, RL2: %.4f' % (epoch, rho, L2, RL2)
+            print(msg)
+            logger.info(msg)
+
             trainer.set_test()
             validate(trainer.base_model, trainer.psnet_model, trainer.decoder, trainer.regressor_delta, test_dataloader, epoch, trainer.optimizer, args, trainer.gcn,
-                 trainer.attn_encoder, trainer.linear_bp)
+                 trainer.attn_encoder, trainer.linear_bp, logger)
 
-            print('[TEST] EPOCH: %d, best correlation: %.6f, best L2: %.6f, best RL2: %.6f' % (epoch_best_aqa,
-                                                                                               rho_best, L2_min, RL2_min))
-            print('[TEST] EPOCH: %d, best tIoU_5: %.6f, best tIoU_75: %.6f' % (epoch_best_tas,
-                                                                               pred_tious_best_5, pred_tious_best_75))
+            msg = '[TEST] EPOCH: %d, best correlation: %.6f, best L2: %.6f, best RL2: %.6f' % (epoch_best_aqa, rho_best, L2_min, RL2_min)
+            print(msg)
+            logger.info(msg)
+
+            msg = '[TEST] EPOCH: %d, best tIoU_5: %.6f, best tIoU_75: %.6f' % (epoch_best_tas, pred_tious_best_5, pred_tious_best_75)
+            print(msg)
+            logger.info(msg)
 
         # scheduler lr
         if scheduler is not None:
@@ -233,7 +243,7 @@ def train_net(args):
 
 
 def validate(base_model, psnet_model, decoder, regressor_delta, test_dataloader, epoch, optimizer, args, gcn,
-             attn_encoder, linear_bp):
+             attn_encoder, linear_bp, logger):
     print("Start validating epoch {}".format(epoch))
     global use_gpu
     global epoch_best_aqa, rho_best, L2_min, RL2_min, epoch_best_tas, pred_tious_best_5, pred_tious_best_75
@@ -259,7 +269,7 @@ def validate(base_model, psnet_model, decoder, regressor_delta, test_dataloader,
     for batch_idx, data_list in enumerate(test_dataloader, 0):
         data = data_list[0]
         target = data_list[1:]
-        if args.bs_test == 1:
+        if args.bs_test == 1 or data['final_score'].shape == ():
             data = {k: v.unsqueeze(0) for k, v in data.items() if k != 'key'}
             for i in range(len(target)):
                 target[i] = {k: v.unsqueeze(0) for k, v in target[i].items() if k != 'key'}
@@ -284,8 +294,9 @@ def validate(base_model, psnet_model, decoder, regressor_delta, test_dataloader,
 
         batch_time = time.time() - start
         if batch_idx % args.print_freq == 0:
-            print('[TEST][%d/%d][%d/%d] \t Batch_time %.6f \t Data_time %.6f'
-                  % (epoch, args.max_epoch, batch_idx, batch_num, batch_time, datatime))
+            msg = '[TEST][%d/%d][%d/%d] \t Batch_time %.6f \t Data_time %.6f' % (epoch, args.max_epoch, batch_idx, batch_num, batch_time, datatime)
+            print(msg)
+            logger.info(msg)
         datatime_start = time.time()
         true_scores.extend(data['final_score'].numpy())
 
@@ -304,7 +315,9 @@ def validate(base_model, psnet_model, decoder, regressor_delta, test_dataloader,
     if pred_tious_test_mean_75 > pred_tious_best_75:
         pred_tious_best_75 = pred_tious_test_mean_75
         epoch_best_tas = epoch
-    print('[TEST] EPOCH: %d, tIoU_5: %.6f, tIoU_75: %.6f' % (epoch, pred_tious_best_5, pred_tious_best_75))
+    msg = '[TEST] EPOCH: %d, tIoU_5: %.6f, tIoU_75: %.6f' % (epoch, pred_tious_best_5, pred_tious_best_75)
+    print(msg)
+    logger.info(msg)
 
     if L2_min > L2:
         L2_min = L2
@@ -313,14 +326,33 @@ def validate(base_model, psnet_model, decoder, regressor_delta, test_dataloader,
     if rho > rho_best:
         rho_best = rho
         epoch_best_aqa = epoch
-        print('-----New best found!-----')
+        msg = '-----New best found!-----'
+        print(msg)
+        logger.info(msg)
+        if rho > 0.4:
+            os.makedirs(f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}',
+                        exist_ok=True)
+            ms.save_checkpoint(gcn,
+                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/gcn.ckpt')
+            ms.save_checkpoint(attn_encoder,
+                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/attn_encoder.ckpt')
+            ms.save_checkpoint(linear_bp,
+                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/linear_bp.ckpt')
+            ms.save_checkpoint(regressor_delta,
+                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/regressor_delta.ckpt')
+            ms.save_checkpoint(decoder,
+                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/decoder.ckpt')
+            ms.save_checkpoint(psnet_model,
+                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/psnet_model.ckpt')
         # helper.save_outputs(pred_scores, true_scores, args)
         # helper.save_checkpoint(base_model, psnet_model, decoder, regressor_delta, optimizer, epoch, epoch_best_aqa,
         #                        rho_best, L2_min, RL2_min, 'last', args)
     if epoch == args.max_epoch - 1:
         log_best(rho_best, RL2_min, epoch_best_aqa, args)
 
-    print('[TEST] EPOCH: %d, correlation: %.6f, L2: %.6f, RL2: %.6f' % (epoch, rho, L2, RL2))
+    msg = '[TEST] EPOCH: %d, correlation: %.6f, L2: %.6f, RL2: %.6f' % (epoch, rho, L2, RL2)
+    print(msg)
+    logger.info(msg)
 
 
 def test_net(args):
@@ -420,7 +452,7 @@ def test(base_model, psnet_model, decoder, regressor_delta, test_dataloader, arg
     for batch_idx, data_list in enumerate(test_dataloader, 0):
         data = data_list[0]
         target = data_list[1:]
-        if args.bs_test == 1:
+        if args.bs_test == 1 or data['final_score'].shape == ():
             data = {k: v.unsqueeze(0) for k, v in data.items() if k != 'key'}
             for i in range(len(target)):
                 target[i] = {k: v.unsqueeze(0) for k, v in target[i].items() if k != 'key'}

@@ -15,7 +15,7 @@ def convert_tensor(x):
 
 
 class FineDiving_Pair_Dataset():
-    def __init__(self, args, subset, transform):
+    def __init__(self, args, subset, transform, boxes_dict, feamap_dict):
         random.seed(args.seed)
         if args.use_i3d_bb:
             args.feature_root = args.i3d_feature_path
@@ -40,17 +40,34 @@ class FineDiving_Pair_Dataset():
         self.data_root = args.data_root
         self.data_anno = self.read_pickle(args.label_path)
         with open(args.train_split, 'rb') as f:
-            self.train_dataset_list = pickle.load(f)
+            train_dataset_list = pickle.load(f)
         with open(args.test_split, 'rb') as f:
-            self.test_dataset_list = pickle.load(f)
+            test_dataset_list = pickle.load(f)
         with open(args.feature_root, 'rb') as f:
             self.feature_dict = pickle.load(f)
-        with open(args.feamap_root, 'rb') as f:
-            self.feamap_dict = pickle.load(f)
-        self.boxes_dict = pickle.load(open(args.boxes_path, 'rb'))
+        self.feamap_dict = feamap_dict
+        self.boxes_dict = boxes_dict
         self.cnn_feature_dict = self.read_pickle(args.cnn_feature_path)
         self.formation_features_dict = pickle.load(open(args.formation_feature_path, 'rb'))
         self.bp_feature_path = args.bp_feature_path
+
+        self.train_dataset_list = []
+        for key in train_dataset_list:
+            try:
+                self.boxes_dict[(key[0], str(key[1]), '0000')]
+            except KeyError:
+                pass
+            else:
+                self.train_dataset_list.append(key)
+
+        self.test_dataset_list = []
+        for key in test_dataset_list:
+            try:
+                self.boxes_dict[(key[0], str(key[1]), '0000')]
+            except KeyError:
+                pass
+            else:
+                self.test_dataset_list.append(key)
 
         # transforms
         self.transforms = video_transforms.Compose([
@@ -75,12 +92,20 @@ class FineDiving_Pair_Dataset():
 
     def preprocess(self):
         for item in self.train_dataset_list:
+            try:
+                self.boxes_dict[(item[0], str(item[1]), '0000')]
+            except KeyError:
+                continue
             dive_number = self.data_anno.get(item)[0]
             if self.action_number_dict.get(dive_number) is None:
                 self.action_number_dict[dive_number] = []
             self.action_number_dict[dive_number].append(item)
         if self.subset == 'test':
             for item in self.test_dataset_list:
+                try:
+                    self.boxes_dict[(item[0], str(item[1]), '0000')]
+                except KeyError:
+                    continue
                 dive_number = self.data_anno.get(item)[0]
                 if self.action_number_dict_test.get(dive_number) is None:
                     self.action_number_dict_test[dive_number] = []
@@ -105,7 +130,7 @@ class FineDiving_Pair_Dataset():
         if len(image_list) >= length:
             start_frame = int(image_list[0].split("/")[-1][:-4])
             end_frame = int(image_list[-1].split("/")[-1][:-4])
-            frame_list = np.linspace(start_frame, end_frame, length).astype(np.int)
+            frame_list = np.linspace(start_frame, end_frame, length).astype(np.int64)
             image_frame_idx = [frame_list[i] - start_frame for i in range(length)]
             video = [Image.open(image_list[image_frame_idx[i]]) for i in range(length)]
             return transforms(video).transpose(0, 1).numpy(), image_frame_idx
@@ -113,7 +138,7 @@ class FineDiving_Pair_Dataset():
             T = len(image_list)
             img_idx_list = np.arange(T)
             img_idx_list = img_idx_list.repeat(2)
-            idx_list = np.linspace(0, T * 2 - 1, length).astype(np.int)
+            idx_list = np.linspace(0, T * 2 - 1, length).astype(np.int64)
             image_frame_idx = [img_idx_list[idx_list[i]] for i in range(length)]
 
             video = [Image.open(image_list[image_frame_idx[i]]) for i in range(length)]
@@ -125,7 +150,7 @@ class FineDiving_Pair_Dataset():
         if len(image_list) >= self.length:
             start_frame = int(image_list[0].split("/")[-1][:-4])
             end_frame = int(image_list[-1].split("/")[-1][:-4])
-            frame_list = np.linspace(start_frame, end_frame, self.length).astype(np.int)
+            frame_list = np.linspace(start_frame, end_frame, self.length).astype(np.int64)
             image_frame_idx = [frame_list[i] - start_frame for i in range(self.length)]
 
             # video = [Image.open(image_list[image_frame_idx[i]]) for i in range(self.length)]
@@ -145,7 +170,7 @@ class FineDiving_Pair_Dataset():
             frame_labels_1 = frame_labels_1.tolist()
 
             # assert T1 == TT1 and T == TT
-            select_space = np.linspace(0, TT1 - 1, self.length).astype(np.int)
+            select_space = np.linspace(0, TT1 - 1, self.length).astype(np.int64)
             select_frame_list = [select_space[i] for i in range(self.length)]
 
             # video_1 = torch.cat([video_1[:, ii, :, :].unsqueeze(1) for ii in select_frame_list], 1)
@@ -162,14 +187,14 @@ class FineDiving_Pair_Dataset():
         if len(image_list) >= length:
             start_frame = int(image_list[0].split("/")[-1][:-4])
             end_frame = int(image_list[-1].split("/")[-1][:-4])
-            frame_list = np.linspace(start_frame, end_frame, length).astype(np.int)
+            frame_list = np.linspace(start_frame, end_frame, length).astype(np.int64)
             image_frame_idx = [frame_list[i] - start_frame for i in range(length)]
             return image_frame_idx
         else:
             T = len(image_list)
             img_idx_list = np.arange(T)
             img_idx_list = img_idx_list.repeat(2)
-            idx_list = np.linspace(0, T * 2 - 1, length).astype(np.int)
+            idx_list = np.linspace(0, T * 2 - 1, length).astype(np.int64)
             image_frame_idx = [img_idx_list[idx_list[i]] for i in range(length)]
             return image_frame_idx
 
@@ -184,7 +209,7 @@ class FineDiving_Pair_Dataset():
                 if item == 'person':
                     person_idx_list.append(i)
             tmp_bbox = []
-            tmp_x1, tmp_y1, tmp_x2, tmp_y2 = 0, 0, 0, 0
+            tmp_x1, tmp_y1, tmp_x2, tmp_y2 = 0., 0., 0., 0.
             for idx, person_idx in enumerate(person_idx_list):
                 if idx < N:
                     box = self.boxes_dict[key_bbox]['boxes'][person_idx]
@@ -195,14 +220,14 @@ class FineDiving_Pair_Dataset():
                     w = w * W
                     h = h * H
                     tmp_x1, tmp_y1, tmp_x2, tmp_y2 = x, y, x + w, y + h
-                    tmp_bbox.append(ms.tensor([x, y, x + w, y + h]).unsqueeze(0))  # 1,4 x1,y1,x2,y2
+                    tmp_bbox.append(np.array([[x, y, x + w, y + h]]))  # 1,4 x1,y1,x2,y2
             if len(person_idx_list) < N:
                 step = len(person_idx_list)
                 while step < N:
-                    tmp_bbox.append(ms.tensor([tmp_x1, tmp_y1, tmp_x2, tmp_y2]).unsqueeze(0))  # 1,4
+                    tmp_bbox.append(np.array([[tmp_x1, tmp_y1, tmp_x2, tmp_y2]]))  # 1,4
                     step += 1
-            boxes.append(ops.cat(tmp_bbox).unsqueeze(0))  # 1,N,4
-        boxes_tensor = ops.cat(boxes)
+            boxes.append(np.concatenate(tmp_bbox, axis=0)[np.newaxis, :])  # 1,N,4
+        boxes_tensor = np.concatenate(boxes, axis=0)
         return boxes_tensor
 
     def random_select_frames(self, video, image_frame_idx):
@@ -266,7 +291,7 @@ class FineDiving_Pair_Dataset():
                         selected_frames_idx = self.random_select_idx(image_frame_idx)
                     else:
                         selected_frames_idx = self.select_middle_idx(image_frame_idx)
-                    data['boxes'] = self.load_boxes(key, selected_frames_idx, self.out_size).numpy()  # 540*t,N,4
+                    data['boxes'] = self.load_boxes(key, selected_frames_idx, self.out_size)  # 540*t,N,4
                     data['cnn_features'] = self.cnn_feature_dict[key].squeeze(0).numpy()
                 else:
                     frames_path = os.path.join(self.data_root, key[0], str(key[1]))
@@ -275,7 +300,7 @@ class FineDiving_Pair_Dataset():
                         selected_frames, selected_frames_idx = self.random_select_frames(video, image_frame_idx)
                     else:
                         selected_frames, selected_frames_idx = self.select_middle_frames(video, image_frame_idx)
-                    data['boxes'] = self.load_boxes(key, selected_frames_idx, self.out_size).numpy()  # 540*t,N,4
+                    data['boxes'] = self.load_boxes(key, selected_frames_idx, self.out_size)  # 540*t,N,4
                     data['video'] = selected_frames  # 540*t,C,H,W
         return data
 
@@ -287,14 +312,17 @@ class FineDiving_Pair_Dataset():
     def __getitem__(self, index):
         sample_1 = self.dataset[index]
         data = {}
-        data['feature'] = self.feature_dict[sample_1]
-        data['feamap'] = self.feamap_dict[sample_1]
+        data['feature'] = self.feature_dict[sample_1].numpy()
+        data['feamap'] = self.feamap_dict[sample_1].numpy()
         frames_path = os.path.join(self.data_root, sample_1[0], str(sample_1[1]))
         data['transits'], data['frame_labels'] = self.load_transits(sample_1)
-        data['number'] = self.data_anno.get(sample_1)[0]
+        # data['number'] = self.data_anno.get(sample_1)[0]
         data['final_score'] = self.data_anno.get(sample_1)[1]
-        data['difficulty'] = self.data_anno.get(sample_1)[2]
-        data['completeness'] = (data['final_score'] / data['difficulty'])
+        if self.data_anno.get(sample_1)[0] == 'free':
+            data['difficulty'] = 0
+        elif self.data_anno.get(sample_1)[0] == 'tech':
+            data['difficulty'] = 1
+        # data['completeness'] = (data['final_score'] / data['difficulty'])
 
         # goat
         data = self.load_goat_data(data, sample_1)
@@ -321,10 +349,15 @@ class FineDiving_Pair_Dataset():
             target['feamap'] = self.feamap_dict[sample_2].numpy()
             frames_path = os.path.join(self.data_root, sample_2[0], str(sample_2[1]))
             target['transits'], target['frame_labels'] = self.load_transits(sample_2)
-            target['number'] = self.data_anno.get(sample_2)[0]
             target['final_score'] = self.data_anno.get(sample_2)[1]
-            target['difficulty'] = self.data_anno.get(sample_2)[2]
-            target['completeness'] = (target['final_score'] / target['difficulty'])
+            if self.data_anno.get(sample_2)[0] == 'free':
+                target['difficulty'] = 0
+            elif self.data_anno.get(sample_2)[0] == 'tech':
+                target['difficulty'] = 1
+            # target['number'] = self.data_anno.get(sample_2)[0]
+            # target['final_score'] = self.data_anno.get(sample_2)[1]
+            # target['difficulty'] = self.data_anno.get(sample_2)[2]
+            # target['completeness'] = (target['final_score'] / target['difficulty'])
 
             # goat
             target = self.load_goat_data(target, sample_2)
@@ -353,10 +386,15 @@ class FineDiving_Pair_Dataset():
                 tmp['feamap'] = self.feamap_dict[item].numpy()
                 frames_path = os.path.join(self.data_root, item[0], str(item[1]))
                 tmp['transits'], tmp['frame_labels'] = self.load_transits(item)
-                tmp['number'] = self.data_anno.get(item)[0]
+                # tmp['number'] = self.data_anno.get(item)[0]
+                # tmp['final_score'] = self.data_anno.get(item)[1]
+                # tmp['difficulty'] = self.data_anno.get(item)[2]
                 tmp['final_score'] = self.data_anno.get(item)[1]
-                tmp['difficulty'] = self.data_anno.get(item)[2]
-                tmp['completeness'] = (tmp['final_score'] / tmp['difficulty'])
+                if self.data_anno.get(item)[0] == 'free':
+                    tmp['difficulty'] = 0
+                elif self.data_anno.get(item)[0] == 'tech':
+                    tmp['difficulty'] = 1
+                # tmp['completeness'] = (tmp['final_score'] / tmp['difficulty'])
 
                 # goat
                 tmp = self.load_goat_data(tmp, item)

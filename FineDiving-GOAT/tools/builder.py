@@ -8,6 +8,7 @@ from utils.misc import import_class
 from torchvideotransforms import video_transforms, volume_transforms
 from models import decoder_fuser
 from models import MLP_score
+import pickle
 
 import mindspore as ms
 import mindspore.nn as nn
@@ -30,10 +31,12 @@ def get_video_trans():
 
 
 def dataset_builder(args):
+    feamap_dict = pickle.load(open(args.feamap_root, 'rb'))
+    boxes_dict = pickle.load(open(args.boxes_path, 'rb'))
     train_trans, test_trans = get_video_trans()
     Dataset = import_class("datasets." + args.benchmark)
-    train_dataset = Dataset(args, transform=train_trans, subset='train')
-    test_dataset = Dataset(args, transform=test_trans, subset='test')
+    train_dataset = Dataset(args, transform=train_trans, subset='train', feamap_dict=feamap_dict, boxes_dict=boxes_dict)
+    test_dataset = Dataset(args, transform=test_trans, subset='test', feamap_dict=feamap_dict, boxes_dict=boxes_dict)
     return train_dataset, test_dataset
 
 def model_builder(args):

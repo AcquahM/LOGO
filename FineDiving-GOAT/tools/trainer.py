@@ -190,28 +190,28 @@ class Trainer:
         u_feamap_96 = u_feamap_96.reshape(2 * N, u_feamap_96.shape[1], u_feamap_96.shape[2], H_t, W_t)
 
         label_12_tas = ops.cat((label_1_tas, label_2_tas), 0)
-        label_12_pad = ops.zeros(transits_pred.size())
+        label_12_pad = ops.zeros(transits_pred.shape)
         # one-hot
         for bs in range(transits_pred.shape[0]):
             label_12_pad[bs, int(label_12_tas[bs, 0]), 0] = 1
             label_12_pad[bs, int(label_12_tas[bs, -1]), -1] = 1
 
-        loss_tas = self.bce(transits_pred, label_12_pad.cuda())
+        loss_tas = self.bce(transits_pred, label_12_pad)
 
         num = round(transits_pred.shape[1] / transits_pred.shape[-1])
-        transits_st_ed = ops.zeros(label_12_tas.size())
+        transits_st_ed = ops.zeros(label_12_tas.shape)
         for bs in range(transits_pred.shape[0]):
             for i in range(transits_pred.shape[-1]):
-                transits_st_ed[bs, i] = transits_pred[bs, i * num: (i + 1) * num, i].argmax(0).cpu().item() + i * num
+                transits_st_ed[bs, i] = transits_pred[bs, i * num: (i + 1) * num, i].argmax(0).item() + i * num
         label_1_tas_pred = transits_st_ed[:transits_st_ed.shape[0] // 2]
         label_2_tas_pred = transits_st_ed[transits_st_ed.shape[0] // 2:]
 
         ############# Procedure-aware Cross-attention #############
-        u_fea_96_1 = u_fea_96[:u_fea_96.shape[0] // 2].transpose(1, 2)
-        u_fea_96_2 = u_fea_96[u_fea_96.shape[0] // 2:].transpose(1, 2)
+        u_fea_96_1 = u_fea_96[:u_fea_96.shape[0] // 2].swapaxes(1, 2)
+        u_fea_96_2 = u_fea_96[u_fea_96.shape[0] // 2:].swapaxes(1, 2)
 
-        u_feamap_96_1 = u_feamap_96[:u_feamap_96.shape[0] // 2].transpose(1, 2)
-        u_feamap_96_2 = u_feamap_96[u_feamap_96.shape[0] // 2:].transpose(1, 2)
+        u_feamap_96_1 = u_feamap_96[:u_feamap_96.shape[0] // 2].swapaxes(1, 2)
+        u_feamap_96_2 = u_feamap_96[u_feamap_96.shape[0] // 2:].swapaxes(1, 2)
 
         if epoch / self.args.max_epoch <= self.args.prob_tas_threshold:
             video_1_segs = []
@@ -219,14 +219,14 @@ class Trainer:
                 video_1_st = int(label_1_tas[bs_1][0].item())
                 video_1_ed = int(label_1_tas[bs_1][1].item())
                 video_1_segs.append(seg_pool_1d(u_fea_96_1[bs_1].unsqueeze(0), video_1_st, video_1_ed, self.args.fix_size))
-            video_1_segs = ops.cat(video_1_segs, 0).transpose(1, 2)
+            video_1_segs = ops.cat(video_1_segs, 0).swapaxes(1, 2)
 
             video_2_segs = []
             for bs_2 in range(u_fea_96_2.shape[0]):
                 video_2_st = int(label_2_tas[bs_2][0].item())
                 video_2_ed = int(label_2_tas[bs_2][1].item())
                 video_2_segs.append(seg_pool_1d(u_fea_96_2[bs_2].unsqueeze(0), video_2_st, video_2_ed, self.args.fix_size))
-            video_2_segs = ops.cat(video_2_segs, 0).transpose(1, 2)
+            video_2_segs = ops.cat(video_2_segs, 0).swapaxes(1, 2)
 
             video_1_segs_map = []
             for bs_1 in range(u_feamap_96_1.shape[0]):
@@ -236,9 +236,9 @@ class Trainer:
                     seg_pool_3d(u_feamap_96_1[bs_1].unsqueeze(0), video_1_st, video_1_ed, self.args.fix_size))
             video_1_segs_map = ops.cat(video_1_segs_map, 0)
             video_1_segs_map = video_1_segs_map.reshape(video_1_segs_map.shape[0], video_1_segs_map.shape[1],
-                                                        video_1_segs_map.shape[2], -1).transpose(2, 3)
+                                                        video_1_segs_map.shape[2], -1).swapaxes(2, 3)
             video_1_segs_map = ops.cat([video_1_segs_map[:, :, :, i] for i in range(video_1_segs_map.shape[-1])],
-                                       2).transpose(1, 2)
+                                       2).swapaxes(1, 2)
 
             video_2_segs_map = []
             for bs_2 in range(u_fea_96_2.shape[0]):
@@ -248,9 +248,9 @@ class Trainer:
                     seg_pool_3d(u_feamap_96_2[bs_2].unsqueeze(0), video_2_st, video_2_ed, self.args.fix_size))
             video_2_segs_map = ops.cat(video_2_segs_map, 0)
             video_2_segs_map = video_2_segs_map.reshape(video_2_segs_map.shape[0], video_2_segs_map.shape[1],
-                                                        video_2_segs_map.shape[2], -1).transpose(2, 3)
+                                                        video_2_segs_map.shape[2], -1).swapaxes(2, 3)
             video_2_segs_map = ops.cat([video_2_segs_map[:, :, :, i] for i in range(video_2_segs_map.shape[-1])],
-                                       2).transpose(1, 2)
+                                       2).swapaxes(1, 2)
         else:
             video_1_segs = []
             for bs_1 in range(u_fea_96_1.shape[0]):
@@ -261,7 +261,7 @@ class Trainer:
                 if video_1_ed == 0:
                     video_1_ed = 1
                 video_1_segs.append(seg_pool_1d(u_fea_96_1[bs_1].unsqueeze(0), video_1_st, video_1_ed, self.args.fix_size))
-            video_1_segs = ops.cat(video_1_segs, 0).transpose(1, 2)
+            video_1_segs = ops.cat(video_1_segs, 0).swapaxes(1, 2)
 
             video_2_segs = []
             for bs_2 in range(u_fea_96_2.shape[0]):
@@ -272,7 +272,7 @@ class Trainer:
                 if video_2_ed == 0:
                     video_2_ed = 1
                 video_2_segs.append(seg_pool_1d(u_fea_96_2[bs_2].unsqueeze(0), video_2_st, video_2_ed, self.args.fix_size))
-            video_2_segs = ops.cat(video_2_segs, 0).transpose(1, 2)
+            video_2_segs = ops.cat(video_2_segs, 0).swapaxes(1, 2)
 
             video_1_segs_map = []
             for bs_1 in range(u_feamap_96_1.shape[0]):
@@ -286,9 +286,9 @@ class Trainer:
                     seg_pool_3d(u_feamap_96_1[bs_1].unsqueeze(0), video_1_st, video_1_ed, self.args.fix_size))
             video_1_segs_map = ops.cat(video_1_segs_map, 0)
             video_1_segs_map = video_1_segs_map.reshape(video_1_segs_map.shape[0], video_1_segs_map.shape[1],
-                                                        video_1_segs_map.shape[2], -1).transpose(2, 3)
+                                                        video_1_segs_map.shape[2], -1).swapaxes(2, 3)
             video_1_segs_map = ops.cat([video_1_segs_map[:, :, :, i] for i in range(video_1_segs_map.shape[-1])],
-                                       2).transpose(1, 2)
+                                       2).swapaxes(1, 2)
 
             video_2_segs_map = []
             for bs_2 in range(u_fea_96_2.shape[0]):
@@ -302,9 +302,9 @@ class Trainer:
                     seg_pool_3d(u_feamap_96_2[bs_2].unsqueeze(0), video_2_st, video_2_ed, self.args.fix_size))
             video_2_segs_map = ops.cat(video_2_segs_map, 0)
             video_2_segs_map = video_2_segs_map.reshape(video_2_segs_map.shape[0], video_2_segs_map.shape[1],
-                                                        video_2_segs_map.shape[2], -1).transpose(2, 3)
+                                                        video_2_segs_map.shape[2], -1).swapaxes(2, 3)
             video_2_segs_map = ops.cat([video_2_segs_map[:, :, :, i] for i in range(video_2_segs_map.shape[-1])],
-                                       2).transpose(1, 2)
+                                       2).swapaxes(1, 2)
 
         decoder_video_12_map_list = []
         decoder_video_21_map_list = []
@@ -331,12 +331,12 @@ class Trainer:
                    + self.mse(delta[delta.shape[0] // 2:], (label_2_score - label_1_score))
 
         loss = loss_aqa + loss_tas
-        score = (delta[:delta.shape[0] // 2].detach() + label_2_score)
+        score = (delta[:delta.shape[0] // 2] + label_2_score)
 
         tIoU_results = []
         for bs in range(transits_pred.shape[0] // 2):
-            tIoU_results.append(segment_iou(np.array(label_12_tas.squeeze(-1).cpu())[bs],
-                                            np.array(transits_st_ed.squeeze(-1).cpu())[bs],
+            tIoU_results.append(segment_iou(np.array(label_12_tas)[bs],
+                                            np.array(transits_st_ed)[bs],
                                             self.args))
 
         tiou_thresholds = np.array([0.5, 0.75])
