@@ -11,7 +11,7 @@ def get_args():
     parser.add_argument('--usingDD', type=bool, default=False)
     parser.add_argument('--resume', action='store_true', default=False ,help = 'autoresume training from exp dir(interrupted by accident)')
     parser.add_argument('--test', action='store_true', default=False)
-    parser.add_argument('--ckpts', type = str, default=None, help = 'test used ckpt path')
+    parser.add_argument('--ckpts', type = str, default='ckpts/I3D-lr1e-06-rho0.4876-rl4.9784', help = 'test used ckpt path')
     parser.add_argument('--optimizer', type = str, default='Adam', help = '')
     parser.add_argument('--Seven_cls', type = int, default=1, choices=[1,2,3,4,5,6], help = 'class idx in Seven')
     parser.add_argument('--bs_train', type=int, default=2, help = 'batch size of training')

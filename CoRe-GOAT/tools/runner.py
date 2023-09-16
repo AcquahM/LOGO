@@ -27,10 +27,22 @@ def test_net(args):
                                                   shuffle=False).batch(batch_size=args.bs_test)
     base_model, regressor = builder.model_builder(args)
     # load checkpoints
-    builder.load_model(base_model, regressor, args)
-
+    ms.load_checkpoint(args.ckpts + '/regressor.ckpt', regressor)
     # if using RT, build a group
     group = builder.build_group(train_dataset, args)
+    gcn = GCNnet_artisticswimming_simplified(args)
+    attn_encoder = Encoder_Blocks(args.qk_dim, 1024, args.linear_dim, args.num_heads, args.num_layers, args.attn_drop)
+    linear_bp = Linear_For_Backbone(args)
+    # load checkpoints
+    ms.load_checkpoint(args.ckpts + '/gcn.ckpt', gcn)
+    ms.load_checkpoint(args.ckpts + '/attn_encoder.ckpt', attn_encoder)
+    ms.load_checkpoint(args.ckpts + '/linear_bp.ckpt', linear_bp)
+
+    regressor.set_train(False)
+    linear_bp.set_train(False)
+    if args.use_goat:
+        gcn.set_train(False)
+        attn_encoder.set_train(False)
 
     # CUDA
     global use_gpu
@@ -40,7 +52,7 @@ def test_net(args):
     # base_model = nn.DataParallel(base_model)
     # regressor = nn.DataParallel(regressor)
 
-    test(base_model, regressor, test_dataloader, group, args)
+    test(base_model, regressor, test_dataloader, group, args, gcn, attn_encoder, linear_bp)
 
 
 def run_net(args, logger):
@@ -343,29 +355,28 @@ def validate(base_model, regressor, test_dataloader, epoch, group, args, gcn, at
     print(msg)
 
 
-def test(base_model, regressor, test_dataloader, group, args, gcn, attn_encoder):
+def test(base_model, regressor, test_dataloader, group, args, gcn, attn_encoder, linear_bp):
     global use_gpu
+    global epoch_best, rho_best, L2_min, RL2_min
     true_scores = []
     pred_scores = []
     # base_model.eval()  # set model to eval mode
-    regressor.eval()
-    if args.use_goat:
-        gcn.eval()
-        attn_encoder.eval()
     batch_num = len(test_dataloader)
 
-
     datatime_start = time.time()
-    for batch_idx, (data, target) in enumerate(test_dataloader, 0):
+    for batch_idx, data_list in enumerate(test_dataloader, 1):
+        data = data_list[0]
+        target = data_list[1:]
         if args.bs_test == 1 or data['final_score'].shape == ():
             data = {k: v.unsqueeze(0) for k, v in data.items() if k != 'key'}
-            target = {k: v.unsqueeze(0) for k, v in target.items() if k != 'key'}
+            for i in range(len(target)):
+                target[i] = {k: v.unsqueeze(0) for k, v in target[i].items() if k != 'key'}
         datatime = time.time() - datatime_start
         start = time.time()
         true_scores.extend(data['final_score'].numpy())
         # data prepare
         if args.benchmark == 'MTL':
-            featue_1 = data['feature'].float()  # N, C, T, H, W
+            feature_1 = data['feature'].float()  # N, C, T, H, W
             if args.usingDD:
                 label_2_list = [item['completeness'].float().reshape(-1, 1) for item in target]
             else:
@@ -375,27 +386,24 @@ def test(base_model, regressor, test_dataloader, group, args, gcn, attn_encoder)
             # check
             if not args.dive_number_choosing and args.usingDD:
                 for item in target:
-                    assert (diff == item['difficulty'].float().reshape(-1, 1)).all()
-        elif args.benchmark == 'Seven':
-            featue_1 = data['feature'].float()  # N, C, T, H, W
-            feature_2_list = [item['feature'].float() for item in target]
-            label_2_list = [item['final_score'].float().reshape(-1, 1) for item in target]
-            diff = None
+                    assert (diff == item['difficulty'].reshape(-1, 1)).all()
         else:
             raise NotImplementedError()
-        helper.network_forward_test(base_model, regressor, pred_scores, featue_1, feature_2_list, label_2_list,
-                                    diff, group, args, data, target, gcn, attn_encoder)
+        helper.network_forward_test(base_model, regressor, pred_scores, feature_1, feature_2_list, label_2_list,
+                                    diff, group, args, data, target, gcn, attn_encoder, linear_bp)
         batch_time = time.time() - start
         if batch_idx % args.print_freq == 0:
-            print('[TEST][%d/%d] \t Batch_time %.2f \t Data_time %.2f '
-                  % (batch_idx, batch_num, batch_time, datatime))
+            msg = '[TEST][%d/%d] \t Batch_time %.6f \t Data_time %.6f ' % (batch_idx, batch_num, batch_time, datatime)
+            print(msg)
         datatime_start = time.time()
 
-        # analysis on results
-        pred_scores = np.array(pred_scores).squeeze()
-        true_scores = np.array(true_scores)
-        rho, p = stats.spearmanr(pred_scores, true_scores)
-        L2 = np.power(pred_scores - true_scores, 2).sum() / true_scores.shape[0]
-        RL2 = np.power((pred_scores - true_scores) / (true_scores.max() - true_scores.min()), 2).sum() / \
-              true_scores.shape[0]
-        print('[TEST] correlation: %.6f, L2: %.6f, RL2: %.6f' % (rho, L2, RL2))
+    # analysis on results
+    pred_scores = np.array(pred_scores).squeeze()
+    true_scores = np.array(true_scores)
+    rho, p = stats.spearmanr(pred_scores, true_scores)
+    L2 = np.power(pred_scores - true_scores, 2).sum() / true_scores.shape[0]
+    RL2 = np.power((pred_scores - true_scores) / (true_scores.max() - true_scores.min()), 2).sum() / \
+          true_scores.shape[0]
+
+    msg = '[TEST] Ecorrelation: %.6f, L2: %.6f, RL2: %.6f' % (rho, L2, RL2)
+    print(msg)

@@ -376,37 +376,21 @@ def test_net(args):
 
     # build model
     base_model, psnet_model, decoder, regressor_delta = builder.model_builder(args)
-
-    # Set models and optimizer(depend on whether to use goat)
-    if args.use_goat:
-        gcn = GCNnet_artisticswimming(args)
-        attn_encoder = Encoder_Blocks(args.qk_dim, 1024, args.num_heads, args.num_layers, args.attn_drop)
-        if args.use_multi_gpu:
-            wrap_model(gcn, distributed=args.distributed)
-            wrap_model(attn_encoder, distributed=args.distributed)
-            wrap_model(psnet_model, distributed=args.distributed)
-            wrap_model(decoder, distributed=args.distributed)
-            wrap_model(regressor_delta, distributed=args.distributed)
-        else:
-            gcn = gcn
-            attn_encoder = attn_encoder
-            psnet_model = psnet_model
-            decoder = decoder
-            regressor_delta = regressor_delta
+    if args.use_cnn_features:
+        gcn = GCNnet_artisticswimming_simplified(args)
     else:
-        gcn = None
-        attn_encoder = None
-        if args.use_multi_gpu:
-            wrap_model(psnet_model, distributed=args.distributed)
-            wrap_model(decoder, distributed=args.distributed)
-            wrap_model(regressor_delta, distributed=args.distributed)
-        else:
-            psnet_model = psnet_model
-            decoder = decoder
-            regressor_delta = regressor_delta
+        gcn = GCNnet_artisticswimming(args)
+        gcn.loadmodel(args.stage1_model_path)
+    attn_encoder = Encoder_Blocks(args.qk_dim, 1024, args.linear_dim, args.num_heads, args.num_layers, args.attn_drop)
+    linear_bp = Linear_For_Backbone(args)
 
     # load checkpoints
-    builder.load_model(base_model, psnet_model, decoder, regressor_delta, args)
+    ms.load_checkpoint(args.ckpts + '/attn_encoder.ckpt', attn_encoder)
+    ms.load_checkpoint(args.ckpts + '/gcn.ckpt', gcn)
+    ms.load_checkpoint(args.ckpts + '/linear_bp.ckpt', linear_bp)
+    ms.load_checkpoint(args.ckpts + '/regressor_delta.ckpt', regressor_delta)
+    ms.load_checkpoint(args.ckpts + '/decoder.ckpt', decoder)
+    ms.load_checkpoint(args.ckpts + '/psnet_model.ckpt', psnet_model)
 
     # CUDA
     # global use_gpu
@@ -424,10 +408,10 @@ def test_net(args):
     # decoder = nn.DataParallel(decoder)
     # regressor_delta = nn.DataParallel(regressor_delta)
 
-    test(base_model, psnet_model, decoder, regressor_delta, test_dataloader, args, gcn, attn_encoder)
+    test(base_model, psnet_model, decoder, regressor_delta, test_dataloader, args, gcn, attn_encoder, linear_bp)
 
 
-def test(base_model, psnet_model, decoder, regressor_delta, test_dataloader, args, gcn, attn_encoder):
+def test(base_model, psnet_model, decoder, regressor_delta, test_dataloader, args, gcn, attn_encoder, linear_bp):
     global use_gpu
     global epoch_best_aqa, rho_best, L2_min, RL2_min
     global epoch_best_tas, pred_tious_best_5, pred_tious_best_75
@@ -444,6 +428,7 @@ def test(base_model, psnet_model, decoder, regressor_delta, test_dataloader, arg
     if args.use_goat:
         gcn.set_train(False)
         attn_encoder.set_train(False)
+        linear_bp.set_train(False)
 
     batch_num = len(test_dataloader)
     # with torch.no_grad():
@@ -473,7 +458,7 @@ def test(base_model, psnet_model, decoder, regressor_delta, test_dataloader, arg
                                     feature_1, feature_2_list, label_2_score_list,
                                     args, label_1_tas, label_2_tas_list,
                                     pred_tious_test_5, pred_tious_test_75, feamap_1, feamap_2_list, data, target,
-                                    gcn, attn_encoder)
+                                    gcn, attn_encoder, linear_bp)
 
         batch_time = time.time() - start
         if batch_idx % args.print_freq == 0:

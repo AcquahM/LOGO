@@ -4,7 +4,7 @@ from multiprocessing import Pool
 runs = 12
 
 # use_goat, use_formation, use_self, lr, warmup
-use_goat_list = [0]
+use_goat_list = [1]
 use_formation_list = [0]
 use_self_list = [0]
 lr_list = [1e-3, 3e-3, 1e-4, 3e-4, 1e-5, 3e-5, 1e-6, 3e-6, 1e-7, 3e-7, 1e-8, 3e-8]

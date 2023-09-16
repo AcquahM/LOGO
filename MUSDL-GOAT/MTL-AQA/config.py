@@ -11,6 +11,7 @@ def get_parser():
     parser.add_argument('--temporal_aug', type=int, help='the maximum of random temporal shift, ranges from 0 to 6', default=6)
     parser.add_argument('--gpu', type=str, help='id of gpu device(s) to be used', default='0')
     parser.add_argument('--split', type=int, help='number of training epochs', default=3)
+    parser.add_argument('--ckpts', type=str, default='/home/acquah/LOGO/MUSDL-GOAT/MTL-AQA/results/I3D-lr7e-06-wd0.001-bs4-rho0.4644-rl25.3037', help='test used ckpt path')
 
     # [BASIC]
     parser.add_argument('--num_epochs', type=int, help='number of training epochs', default=100)
