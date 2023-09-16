@@ -323,27 +323,27 @@ def validate(base_model, psnet_model, decoder, regressor_delta, test_dataloader,
         L2_min = L2
     if RL2_min > RL2:
         RL2_min = RL2
+    if rho > 0.4 and RL2 < 0.06:
+        os.makedirs(f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}',
+                    exist_ok=True)
+        ms.save_checkpoint(gcn,
+                           f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/gcn.ckpt')
+        ms.save_checkpoint(attn_encoder,
+                           f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/attn_encoder.ckpt')
+        ms.save_checkpoint(linear_bp,
+                           f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/linear_bp.ckpt')
+        ms.save_checkpoint(regressor_delta,
+                           f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/regressor_delta.ckpt')
+        ms.save_checkpoint(decoder,
+                           f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/decoder.ckpt')
+        ms.save_checkpoint(psnet_model,
+                           f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/psnet_model.ckpt')
     if rho > rho_best:
         rho_best = rho
         epoch_best_aqa = epoch
         msg = '-----New best found!-----'
         print(msg)
         logger.info(msg)
-        if rho > 0.4:
-            os.makedirs(f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}',
-                        exist_ok=True)
-            ms.save_checkpoint(gcn,
-                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/gcn.ckpt')
-            ms.save_checkpoint(attn_encoder,
-                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/attn_encoder.ckpt')
-            ms.save_checkpoint(linear_bp,
-                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/linear_bp.ckpt')
-            ms.save_checkpoint(regressor_delta,
-                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/regressor_delta.ckpt')
-            ms.save_checkpoint(decoder,
-                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/decoder.ckpt')
-            ms.save_checkpoint(psnet_model,
-                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/psnet_model.ckpt')
         # helper.save_outputs(pred_scores, true_scores, args)
         # helper.save_checkpoint(base_model, psnet_model, decoder, regressor_delta, optimizer, epoch, epoch_best_aqa,
         #                        rho_best, L2_min, RL2_min, 'last', args)

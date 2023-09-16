@@ -312,6 +312,16 @@ def validate(base_model, regressor, test_dataloader, epoch, group, args, gcn, at
     L2 = np.power(pred_scores - true_scores, 2).sum() / true_scores.shape[0]
     RL2 = np.power((pred_scores - true_scores) / (true_scores.max() - true_scores.min()), 2).sum() / \
           true_scores.shape[0]
+    if rho > 0.4 and RL2 < 0.06:
+        os.makedirs(f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}', exist_ok=True)
+        ms.save_checkpoint(gcn,
+                            f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/gcn.ckpt')
+        ms.save_checkpoint(attn_encoder,
+                            f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/attn_encoder.ckpt')
+        ms.save_checkpoint(linear_bp,
+                            f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/linear_bp.ckpt')
+        ms.save_checkpoint(regressor,
+                            f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/regressor.ckpt')
     if L2_min > L2:
         L2_min = L2
     if RL2_min > RL2:
@@ -322,16 +332,6 @@ def validate(base_model, regressor, test_dataloader, epoch, group, args, gcn, at
         msg = '-----New best found!-----'
         logger.info(msg)
         print(msg)
-        if rho > 0.4:
-            os.makedirs(f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}', exist_ok=True)
-            ms.save_checkpoint(gcn,
-                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/gcn.ckpt')
-            ms.save_checkpoint(attn_encoder,
-                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/attn_encoder.ckpt')
-            ms.save_checkpoint(linear_bp,
-                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/linear_bp.ckpt')
-            ms.save_checkpoint(regressor,
-                               f'ckpts/{"I3D" if args.use_i3d_bb else "SWIN"}-lr{args.lr}-rho{rho:.4f}-rl{RL2 * 100:.4f}/regressor.ckpt')
         # helper.save_outputs(pred_scores, true_scores, args)
         # helper.save_checkpoint(base_model, regressor, optimizer, epoch, epoch_best, rho_best, L2_min, RL2_min,
         #                        'best', args)

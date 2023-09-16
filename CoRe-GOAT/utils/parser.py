@@ -23,7 +23,7 @@ def get_args():
     parser.add_argument('--score_range', type=int, default=100, help = '')
     parser.add_argument('--voter_number', type=int, default=10, help = '')
     parser.add_argument('--seed', type=int, default=42, help = '')
-    parser.add_argument('--weight_decay', type=int, default=0, help = '')
+    parser.add_argument('--weight_decay', type=int, default=1e-5, help = '')
     parser.add_argument('--temporal_shift_min', type=int, default=-3, help = '')
     parser.add_argument('--temporal_shift_max', type=int, default=3, help = '')
     parser.add_argument('--print_freq', type=int, default=20, help = '')
@@ -31,7 +31,7 @@ def get_args():
 
     ###################################################################################################################
     parser.add_argument('--length', type=int, help='length of videos', default=5406)
-    parser.add_argument('--lr', type=float, help='learning rate', default=3e-5)
+    parser.add_argument('--lr', type=float, help='learning rate', default=1e-5)
     parser.add_argument('--lr_factor', type=float, help='learning rate factor', default=0.01)
     parser.add_argument('--img_size', type=tuple, help='input image size', default=(224, 224))
     parser.add_argument('--out_size', type=tuple, help='output image size', default=(25, 25))

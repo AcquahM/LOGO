@@ -14,7 +14,7 @@ def get_args():
     parser.add_argument('--fix_bn', type=bool, default=True)
     parser.add_argument('--test', action='store_true', default=False)
     parser.add_argument('--ckpts', type=str, default=None, help='test used ckpt path')
-    parser.add_argument('--voter_number', type=int, help='voter_number', default=10)
+    parser.add_argument('--voter_number', type=int, help='voter_number', default=2)
     parser.add_argument('--print_freq', type=int, help='print_freq', default=40)
     parser.add_argument('--fix_size', type=int, help='fix_size', default=5)
     parser.add_argument('--step_num', type=int, help='step_num', default=3)
@@ -22,13 +22,13 @@ def get_args():
 
     # basic
     parser.add_argument('--max_epoch', type=int, help='number of training epochs', default=50)
-    parser.add_argument('--bs_train', type=int, help='batch size for training phase', default=1)
+    parser.add_argument('--bs_train', type=int, help='batch size for training phase', default=2)
     parser.add_argument('--bs_test', type=int, help='batch size for test phase', default=1)
     parser.add_argument('--seed', type=int, help='manual seed', default=42)
     parser.add_argument('--workers', type=int, help='number of subprocesses for dataloader', default=1)
-    parser.add_argument('--lr', type=float, help='learning rate', default=3e-4)
+    parser.add_argument('--lr', type=float, help='learning rate', default=1e-5)
     parser.add_argument('--lr_factor', type=float, help='learning rate factor', default=0.01)
-    parser.add_argument('--weight_decay', type=float, help='L2 weight decay', default=1e-5)
+    parser.add_argument('--weight_decay', type=float, help='L2 weight decay', default=1e-4)
     parser.add_argument('--train_dropout_prob', type=float, default=0.3, help='train_dropout_prob')
 
     # goat setting below
